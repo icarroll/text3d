@@ -98,7 +98,7 @@ FT sphere_function(Point_3 p) {
     const FT x2 = p.x() * p.x();
     const FT y2 = p.y() * p.y();
     const FT z2 = p.z() * p.z();
-    return x2 + y2 + z2 - 1;
+    return 1 - (x2 + y2 + z2) >= 0 ? 1 : -1;
 }
 
 GLuint VAO;
@@ -152,14 +152,12 @@ void setup_sphere() {
     const char * vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
-        "//layout (location = 1) in vec3 aColor;\n"
-        "out vec3 ourColor;\n"
-        "//uniform mat4 transform;\n"
+        "out vec3 FragPos;\n"
+        "out vec3 Normal;\n"
         "void main() {\n"
-        "  //gl_Position = transform * vec4(aPos.x,aPos.y,aPos.z, 1.0);\n"
+        "  FragPos = aPos;\n"
+        "  Normal = aPos;\n" // cheating because sphere
         "  gl_Position = vec4(aPos.x,aPos.y,aPos.z, 1.0);\n"
-        "  //ourColor = aColor;\n"
-        "  ourColor = vec3(1.0,1.0,1.0);\n"
         "}";
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -178,11 +176,31 @@ void setup_sphere() {
     const char * fragment_shader_code = 
         "#version 330 core\n"
         "out vec4 FragColor;\n"
-        "in vec3 ourColor;\n"
+        "in vec3 FragPos;\n"
+        "in vec3 Normal;\n"
         "uniform bool outline;\n"
+        "uniform vec3 lightPos;\n"
+        "uniform vec3 lightColor;\n"
+        "uniform vec3 objectColor;\n"
         "void main() {\n"
         "  if (outline) FragColor = vec4(0.2f,0.2f,0.2f,1.0f);\n"
-        "  else FragColor = vec4(ourColor, 1.0f);\n"
+        "  else {\n"
+        "    float ambientStrength = 0.5;\n"
+        "    vec3 ambient = ambientStrength * lightColor;\n"
+        "    vec3 norm = normalize(Normal);\n"
+        "    vec3 lightDir = normalize(lightPos - FragPos);\n"
+        "    float diff = max(dot(norm, lightDir), 0.0);\n"
+        "    vec3 diffuse = diff * lightColor;\n"
+        "    float specularStrength = 0.5;\n"
+        "    vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
+        "    vec3 viewDir = normalize(viewPos - FragPos);\n"
+        "    vec3 reflectDir = reflect(-lightDir, norm);\n"
+        "    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
+        "    vec3 specular = specularStrength * spec * lightColor;\n"
+        "    \n"
+        "    vec3 result = (ambient + diffuse + specular) * objectColor;\n"
+        "    FragColor = vec4(result, 1.0);\n"
+        "  }\n"
         "}";
     unsigned int fragmentShader;
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -211,17 +229,26 @@ void setup_sphere() {
 
 void draw_sphere() {
     unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
+    unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
+    unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+    unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
     glUseProgram(shaderProgram);
     glBindVertexArray(VAO);
 
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
+    glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
+    glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
+
+    glPolygonMode(GL_FRONT, GL_FILL);
     glUniform1ui(outlineLoc, false);
     glDrawArrays(GL_TRIANGLES, 0, nvertices);
 
+    /*
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glUniform1ui(outlineLoc, true);
     glDrawArrays(GL_TRIANGLES, 0, nvertices);
+    */
 }
 
 int main(int nargs, char * args[])
