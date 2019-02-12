@@ -185,13 +185,13 @@ void setup_sphere() {
         "void main() {\n"
         "  if (outline) FragColor = vec4(0.2f,0.2f,0.2f,1.0f);\n"
         "  else {\n"
-        "    float ambientStrength = 0.5;\n"
+        "    float ambientStrength = 0.1;\n"
         "    vec3 ambient = ambientStrength * lightColor;\n"
-        "    vec3 norm = normalize(Normal);\n"
+        "    vec3 norm = -normalize(Normal);\n"
         "    vec3 lightDir = normalize(lightPos - FragPos);\n"
         "    float diff = max(dot(norm, lightDir), 0.0);\n"
         "    vec3 diffuse = diff * lightColor;\n"
-        "    float specularStrength = 0.5;\n"
+        "    float specularStrength = 0.25;\n"
         "    vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
         "    vec3 viewDir = normalize(viewPos - FragPos);\n"
         "    vec3 reflectDir = reflect(-lightDir, norm);\n"
@@ -239,7 +239,7 @@ void draw_sphere() {
     glBindVertexArray(VAO);
 
     float angle = frame * M_PI / 360.0;
-    glUniform3f(lightPosLoc, cos(angle), sin(angle), -1.0);
+    glUniform3f(lightPosLoc, 10*cos(angle), 10*sin(angle), 0.0);
     glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
     glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
 
