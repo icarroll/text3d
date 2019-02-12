@@ -94,7 +94,7 @@ void close()
     SDL_Quit();
 }
 
-FT sphere_function(Point_3 p) {
+FT surface_function(Point_3 p) {
     const FT x2 = p.x() * p.x();
     const FT y2 = p.y() * p.y();
     const FT z2 = p.z() * p.z();
@@ -110,7 +110,7 @@ void setup_sphere() {
     C2t3 c2t3(tr);    // 2D-complex in 3D-Delaunay triangulation
 
     // defining the surface
-    Surface_3 surface(sphere_function,              // pointer to function
+    Surface_3 surface(surface_function,             // pointer to function
                       Sphere_3(CGAL::ORIGIN, 2.0)); // bounding sphere
     // Note that "2.0" above is the *squared* radius of the bounding sphere!
 
@@ -227,6 +227,8 @@ void setup_sphere() {
     glDeleteShader(fragmentShader);
 }
 
+int frame = 0;
+
 void draw_sphere() {
     unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
     unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
@@ -236,7 +238,8 @@ void draw_sphere() {
     glUseProgram(shaderProgram);
     glBindVertexArray(VAO);
 
-    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
+    float angle = frame * M_PI / 360.0;
+    glUniform3f(lightPosLoc, cos(angle), sin(angle), -1.0);
     glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
     glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
 
@@ -251,19 +254,25 @@ void draw_sphere() {
     */
 }
 
+int FRAME_TICK;
+
+uint32_t timer_callback(uint32_t interval, void * param) {
+    SDL_Event e;
+    e.type = FRAME_TICK;
+    SDL_PushEvent(& e);
+
+    return interval;
+}
+
 int main(int nargs, char * args[])
 {
     init();
 
     setup_sphere();
 
-    // background color
-    glClearColor(0.2, 0.3, 0.3, 1.0);
-    glEnable(GL_DEPTH_TEST);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    draw_sphere();
-    SDL_GL_SwapWindow(gWindow);
+    // timer tick every 20msec
+    FRAME_TICK = SDL_RegisterEvents(1);
+    SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL);
 
     bool done = false;
     while (! done)
@@ -272,6 +281,16 @@ int main(int nargs, char * args[])
         SDL_WaitEvent(& e); //TODO check for error
 
         if (e.type == SDL_QUIT) done = true;
+        else if (e.type == FRAME_TICK) {
+            // background color
+            glClearColor(0.2, 0.3, 0.3, 1.0);
+            glEnable(GL_DEPTH_TEST);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            draw_sphere();
+            SDL_GL_SwapWindow(gWindow);
+            frame += 1;
+        }
     }
 
     close();
