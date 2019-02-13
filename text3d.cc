@@ -130,7 +130,7 @@ int cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
 FT_Outline_Funcs pl_funcs = {& moveto, & lineto, & conicto, & cubicto, 0, 0};
 
 struct Character {
-    GLuint advance_x;
+    GLfloat advance_x;
     GLuint VAO;
     int nvertices;
 };
@@ -166,6 +166,7 @@ void load_glyphs() {
         }
 
         Character & ch = Characters[c];
+        ch.advance_x = face->glyph->advance.x / size;
 
         glGenVertexArrays(1, & ch.VAO);
 
@@ -192,10 +193,11 @@ void setup_shaders() {
         "layout (location = 0) in vec3 aPos;\n"
         "out vec3 FragPos;\n"
         "out vec3 Normal;\n"
+        "uniform mat4 model;\n"
         "void main() {\n"
         "  FragPos = aPos;\n"
-        "  Normal = aPos;\n" // cheating because sphere
-        "  gl_Position = vec4(aPos.x,aPos.y,aPos.z, 1.0);\n"
+        "  Normal = aPos;\n" // still cheating even though no longer sphere
+        "  gl_Position = model * vec4(aPos, 1.0);\n"
         "}";
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -268,16 +270,27 @@ void setup_shaders() {
 int frame = 0;
 
 void draw() {
+    float x = -3.0;
     for (char c : "Hello, World!") {
         if (c == '\0') continue;
+        Character & ch = Characters[c];
 
         glUseProgram(shaderProgram);
+        unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
         unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
         unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
         unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
         unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
-        glBindVertexArray(Characters[c].VAO);
+        glBindVertexArray(ch.VAO);
+
+        auto model = glm::mat4(1.0f);
+        float scale = 1.0/3.0;
+        model = glm::scale(model, glm::vec3(scale, scale, scale));
+        model = glm::translate(model, glm::vec3(x, -0.5f, 0.0f));
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+        x += ch.advance_x;
 
         float angle = frame * M_PI / 360.0;
         glUniform3f(lightPosLoc, 10*cos(angle), 10*sin(angle), 0.0);
@@ -286,7 +299,7 @@ void draw() {
 
         glPolygonMode(GL_FRONT, GL_FILL);
         glUniform1ui(outlineLoc, false);
-        glDrawArrays(GL_TRIANGLES, 0, Characters[c].nvertices);
+        glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
 
         /*
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
