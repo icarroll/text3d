@@ -16,15 +16,11 @@ extern "C" {
 #include <gl/glew.h>
 #include <SDL_opengl.h>
 #include <gl/glu.h>
-}
 
-#include <CGAL/Surface_mesh_default_triangulation_3.h>
-#include <CGAL/Complex_2_in_triangulation_3.h>
-#include <CGAL/make_surface_mesh.h>
-#include <CGAL/Implicit_surface_3.h>
-#include <CGAL/IO/facets_in_complex_2_to_triangle_mesh.h>
-#include <CGAL/Simple_cartesian.h>
-#include <CGAL/Surface_mesh.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_OUTLINE_H
+}
 
 using namespace std;
 
@@ -34,22 +30,6 @@ const int SCREEN_HEIGHT = 800;
 char WINDOW_NAME[] = "Hello, World! Now in 3D more!";
 SDL_Window * gWindow = NULL;
 SDL_GLContext gContext;
-
-// default triangulation for Surface_mesher
-typedef CGAL::Surface_mesh_default_triangulation_3 Tr;
-// c2t3
-typedef CGAL::Complex_2_in_triangulation_3<Tr> C2t3;
-typedef Tr::Geom_traits GT;
-typedef GT::Sphere_3 Sphere_3;
-typedef GT::Point_3 Point_3;
-typedef GT::FT FT;
-typedef FT (*Function)(Point_3);
-typedef CGAL::Implicit_surface_3<GT, Function> Surface_3;
-// surface mesh
-typedef CGAL::Simple_cartesian<float> K;
-typedef CGAL::Surface_mesh<K::Point_3> Mesh;
-typedef Mesh::Vertex_index vertex_descriptor;
-typedef Mesh::Face_index face_descriptor;
 
 void die(string message) {
     cout << message << endl;
@@ -94,43 +74,114 @@ void close()
     SDL_Quit();
 }
 
-FT surface_function(Point_3 p) {
-    const FT x2 = p.x() * p.x();
-    const FT y2 = p.y() * p.y();
-    const FT z2 = p.z() * p.z();
-    return 1 - (x2 + y2 + z2) >= 0 ? 1 : -1;
+FT_Library ft;
+FT_Face face;
+
+struct Character {
+    GLuint advance;
+    vector<vector<glm::ivec2>> polylines;
+    vector<GLfloat> vertices;
+    vector<GLuint> triangles;
+};
+
+map<GLchar, Character> Characters;
+
+void load_glyphs() {
+    if (FT_Init_FreeType(& ft)) die("freetype");
+    if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
+    //FT_Set_Pixel_Sizes(face, 0, 48);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (GLubyte c=0 ; c<128 ; c+=1) {
+        if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
+        //Characters.insert(pair<GLchar, Character>(c, character));
+    }
 }
 
 GLuint VAO;
 int nvertices;
 GLuint shaderProgram;
 
-void setup_sphere() {
-    Tr tr;            // 3D-Delaunay triangulation
-    C2t3 c2t3(tr);    // 2D-complex in 3D-Delaunay triangulation
+int moveto(const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::fvec2>> *) user;
+    vector<glm::fvec2> polyline = {{FT_to->x, FT_to->y}};
+    polylines->push_back(polyline);
+    return 0;
+}
 
-    // defining the surface
-    Surface_3 surface(surface_function,             // pointer to function
-                      Sphere_3(CGAL::ORIGIN, 2.0)); // bounding sphere
-    // Note that "2.0" above is the *squared* radius of the bounding sphere!
+int lineto(const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::fvec2>> *) user;
+    vector<glm::fvec2> & polyline = polylines->back();
+    polyline.push_back({FT_to->x, FT_to->y});
+    return 0;
+}
 
-    // defining meshing criteria
-    CGAL::Surface_mesh_default_criteria_3<Tr> criteria(30.,  // angular bound
-                                                       0.1,  // radius bound
-                                                       0.1); // distance bound
-    // meshing surface
-    CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Manifold_tag());
+int conicto(const FT_Vector * FT_ctl, const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::fvec2>> *) user;
+    vector<glm::fvec2> & polyline = polylines->back();
 
-    Mesh mesh;
-    CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, mesh);
+    glm::fvec2 & from = polyline.back();
+    glm::fvec2 ctl = {FT_ctl->x, FT_ctl->y};
+    glm::fvec2 to = {FT_to->x, FT_to->y};
 
+    glm::fvec2 mid = 0.25f * from + 0.5f * ctl + 0.25f * to;
+
+    polyline.push_back(mid);
+    polyline.push_back(to);
+    return 0;
+}
+
+int cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
+            const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::fvec2>> *) user;
+    vector<glm::fvec2> & polyline = polylines->back();
+
+    glm::fvec2 & from = polyline.back();
+    glm::fvec2 ctl1 = {FT_ctl1->x, FT_ctl1->y};
+    glm::fvec2 ctl2 = {FT_ctl2->x, FT_ctl2->y};
+    glm::fvec2 to = {FT_to->x, FT_to->y};
+
+    glm::fvec2 mid1 = 0.2963f * from + 0.4444f * ctl1 + 0.2222f * ctl2
+                      + 0.0370f * to;
+    glm::fvec2 mid2 = 0.0370f * from + 0.2222f * ctl1 + 0.4444f * ctl2
+                      + 0.2963f * to;
+
+    polyline.push_back(mid1);
+    polyline.push_back(mid2);
+    polyline.push_back(to);
+    return 0;
+}
+
+FT_Outline_Funcs pl_funcs = {& moveto, & lineto, & conicto, & cubicto, 0, 0};
+
+void setup_text() {
+    // decompose glyph to polyline
+    vector<vector<glm::fvec2>> polylines;
+    for (auto c : "Hello, World!") {
+        if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
+        FT_Outline outline = face->glyph->outline;
+        FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
+    }
+
+    /*
+     * device_x = design_x * x_scale
+     * device_y = design_y * y_scale
+
+     * x_scale  = pixel_size_x / EM_size
+     * y_scale  = pixel_size_y / EM_size
+
+     * EM_size = face->units_per_EM
+     */
+
+    // mesh polyline to triangles
+
+    // send triangles to opengl
+    float size = face->units_per_EM;
     vector<float> vertices = {};
-    for (auto face : mesh.faces()) {
-        for (auto vertex : vertices_around_face(mesh.halfedge(face), mesh)) {
-            K::Point_3 point = mesh.point(vertex);
-            vertices.push_back(point.x());
-            vertices.push_back(point.y());
-            vertices.push_back(point.z());
+    for (auto & polyline : polylines) {
+        for (auto & point : polyline) {
+            vertices.push_back(point.x / size);
+            vertices.push_back(point.y / size);
+            vertices.push_back(0.0);
         }
     }
 
@@ -229,7 +280,7 @@ void setup_sphere() {
 
 int frame = 0;
 
-void draw_sphere() {
+void draw() {
     unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
     unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
     unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
@@ -268,7 +319,9 @@ int main(int nargs, char * args[])
 {
     init();
 
-    setup_sphere();
+    load_glyphs();
+
+    setup_text();
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
@@ -287,7 +340,7 @@ int main(int nargs, char * args[])
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            draw_sphere();
+            draw();
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
