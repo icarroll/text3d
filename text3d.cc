@@ -77,49 +77,49 @@ void close()
 FT_Library ft;
 FT_Face face;
 
-int moveto(const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::fvec2>> *) user;
-    vector<glm::fvec2> polyline = {{FT_to->x, FT_to->y}};
+int pl_moveto(const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::dvec3>> *) user;
+    vector<glm::dvec3> polyline = {{FT_to->x, FT_to->y, 0.0}};
     polylines->push_back(polyline);
     return 0;
 }
 
-int lineto(const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::fvec2>> *) user;
-    vector<glm::fvec2> & polyline = polylines->back();
-    polyline.push_back({FT_to->x, FT_to->y});
+int pl_lineto(const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::dvec3>> *) user;
+    vector<glm::dvec3> & polyline = polylines->back();
+    polyline.push_back({FT_to->x, FT_to->y, 0.0});
     return 0;
 }
 
-int conicto(const FT_Vector * FT_ctl, const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::fvec2>> *) user;
-    vector<glm::fvec2> & polyline = polylines->back();
+int pl_conicto(const FT_Vector * FT_ctl, const FT_Vector * FT_to, void * user) {
+    auto * polylines = (vector<vector<glm::dvec3>> *) user;
+    vector<glm::dvec3> & polyline = polylines->back();
 
-    glm::fvec2 & from = polyline.back();
-    glm::fvec2 ctl = {FT_ctl->x, FT_ctl->y};
-    glm::fvec2 to = {FT_to->x, FT_to->y};
+    glm::dvec3 & from = polyline.back();
+    glm::dvec3 ctl = {FT_ctl->x, FT_ctl->y, 0.0};
+    glm::dvec3 to = {FT_to->x, FT_to->y, 0.0};
 
-    glm::fvec2 mid = 0.25f * from + 0.5f * ctl + 0.25f * to;
+    glm::dvec3 mid = 0.25 * from + 0.5 * ctl + 0.25 * to;
 
     polyline.push_back(mid);
     polyline.push_back(to);
     return 0;
 }
 
-int cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
+int pl_cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
             const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::fvec2>> *) user;
-    vector<glm::fvec2> & polyline = polylines->back();
+    auto * polylines = (vector<vector<glm::dvec3>> *) user;
+    vector<glm::dvec3> & polyline = polylines->back();
 
-    glm::fvec2 & from = polyline.back();
-    glm::fvec2 ctl1 = {FT_ctl1->x, FT_ctl1->y};
-    glm::fvec2 ctl2 = {FT_ctl2->x, FT_ctl2->y};
-    glm::fvec2 to = {FT_to->x, FT_to->y};
+    glm::dvec3 & from = polyline.back();
+    glm::dvec3 ctl1 = {FT_ctl1->x, FT_ctl1->y, 0.0};
+    glm::dvec3 ctl2 = {FT_ctl2->x, FT_ctl2->y, 0.0};
+    glm::dvec3 to = {FT_to->x, FT_to->y, 0.0};
 
-    glm::fvec2 mid1 = 0.2963f * from + 0.4444f * ctl1 + 0.2222f * ctl2
-                      + 0.0370f * to;
-    glm::fvec2 mid2 = 0.0370f * from + 0.2222f * ctl1 + 0.4444f * ctl2
-                      + 0.2963f * to;
+    glm::dvec3 mid1 = 0.2963 * from + 0.4444 * ctl1 + 0.2222 * ctl2
+                      + 0.0370 * to;
+    glm::dvec3 mid2 = 0.0370 * from + 0.2222 * ctl1 + 0.4444 * ctl2
+                      + 0.2963 * to;
 
     polyline.push_back(mid1);
     polyline.push_back(mid2);
@@ -127,7 +127,46 @@ int cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
     return 0;
 }
 
-FT_Outline_Funcs pl_funcs = {& moveto, & lineto, & conicto, & cubicto, 0, 0};
+FT_Outline_Funcs pl_funcs = {& pl_moveto, & pl_lineto,
+                             & pl_conicto, & pl_cubicto,
+                             0, 0};
+
+float size;
+vector<float> vertices;
+
+void tess_begin_cb(GLenum which) {
+    //cout << "tess_begin_cb " << which << endl;
+    switch (which) {
+        case GL_TRIANGLES:
+            break;
+        case GL_TRIANGLE_STRIP:
+            // fallthrough
+        case GL_TRIANGLE_FAN:
+            // fallthrough
+        default:
+            die("unimplemented which");
+    }
+}
+
+void tess_vertex_cb(void * vertex) {
+    //cout << "tess_vertex_cb " << vertex << endl;
+    double * v_in = (double *) vertex;
+    vertices.push_back(v_in[0] / size);
+    vertices.push_back(v_in[1] / size);
+    vertices.push_back(v_in[2] / size);
+}
+
+void tess_end_cb() {
+    //cout << "tess_end_cb " << endl;
+    //TODO
+}
+
+void tess_error_cb(GLenum errorCode) {
+    die("tesselate");
+}
+
+void tess_nothing_cb() {
+}
 
 struct Character {
     GLfloat advance_x;
@@ -140,31 +179,38 @@ vector<Character> Characters(128);
 void load_glyphs() {
     if (FT_Init_FreeType(& ft)) die("freetype");
     if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
+    size = face->units_per_EM;
 
-    for (char c=0 ; c<=126 ; c+=1) {
-        if (c == '\0') continue;
-
+    for (char c=0 ; c<=126 ; c+=1) { // char 127 hangs for some reason
         if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
 
         // decompose glyph to polyline
         FT_Outline outline = face->glyph->outline;
-        vector<vector<glm::fvec2>> polylines;
+        vector<vector<glm::dvec3>> polylines;
         FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
 
-        // mesh polyline to triangles
-        // TODO
+        // mesh polylines to triangles
+        auto tobj = gluNewTess();
+        gluTessCallback(tobj, GLU_TESS_BEGIN, (void (__stdcall *)(void)) tess_begin_cb);
+        gluTessCallback(tobj, GLU_TESS_VERTEX, (void (__stdcall *)(void)) tess_vertex_cb);
+        gluTessCallback(tobj, GLU_TESS_END, (void (__stdcall *)(void)) tess_end_cb);
+        gluTessCallback(tobj, GLU_TESS_ERROR, (void (__stdcall *)(void)) tess_error_cb);
+        // for now, make the tesselator not do strips and fans
+        gluTessCallback(tobj, GLU_TESS_EDGE_FLAG, (void (__stdcall *)(void)) tess_nothing_cb);
+
+        vertices = {};
+        gluTessBeginPolygon(tobj, nullptr);
+        for (auto & polyline : polylines) {
+            gluTessBeginContour(tobj);
+            for (glm::dvec3 & point : polyline) {
+                gluTessVertex(tobj, glm::value_ptr(point),
+                              glm::value_ptr(point));
+            }
+            gluTessEndContour(tobj);
+        }
+        gluTessEndPolygon(tobj);
 
         // send triangles to opengl
-        float size = face->units_per_EM;
-        vector<float> vertices = {};
-        for (auto & polyline : polylines) {
-            for (auto & point : polyline) {
-                vertices.push_back(point.x / size);
-                vertices.push_back(point.y / size);
-                vertices.push_back(0.0);
-            }
-        }
-
         Character & ch = Characters[c];
         ch.advance_x = face->glyph->advance.x / size;
 
