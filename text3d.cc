@@ -78,28 +78,12 @@ FT_Library ft;
 FT_Face face;
 
 struct Character {
-    GLuint advance;
-    vector<vector<glm::ivec2>> polylines;
-    vector<GLfloat> vertices;
-    vector<GLuint> triangles;
+    GLuint advance_x;
+    int nvertices;
+    GLuint VAO;
 };
 
 map<GLchar, Character> Characters;
-
-void load_glyphs() {
-    if (FT_Init_FreeType(& ft)) die("freetype");
-    if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
-    //FT_Set_Pixel_Sizes(face, 0, 48);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    for (GLubyte c=0 ; c<128 ; c+=1) {
-        if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
-        //Characters.insert(pair<GLchar, Character>(c, character));
-    }
-}
-
-GLuint VAO;
-int nvertices;
-GLuint shaderProgram;
 
 int moveto(const FT_Vector * FT_to, void * user) {
     auto * polylines = (vector<vector<glm::fvec2>> *) user;
@@ -153,49 +137,56 @@ int cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
 
 FT_Outline_Funcs pl_funcs = {& moveto, & lineto, & conicto, & cubicto, 0, 0};
 
-void setup_text() {
+vector<GLuint> VAOs;
+vector<int> nverticeses;
+void load_glyphs() {
+    if (FT_Init_FreeType(& ft)) die("freetype");
+    if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
+    //FT_Set_Pixel_Sizes(face, 0, 48);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (GLubyte c=0 ; c<128 ; c+=1) {
+        if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
+        //Characters.insert(pair<GLchar, Character>(c, character));
+    }
+
     // decompose glyph to polyline
     vector<vector<glm::fvec2>> polylines;
     for (auto c : "Hello, World!") {
         if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
         FT_Outline outline = face->glyph->outline;
         FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
-    }
 
-    /*
-     * device_x = design_x * x_scale
-     * device_y = design_y * y_scale
+        // mesh polyline to triangles
+        // TODO
 
-     * x_scale  = pixel_size_x / EM_size
-     * y_scale  = pixel_size_y / EM_size
-
-     * EM_size = face->units_per_EM
-     */
-
-    // mesh polyline to triangles
-
-    // send triangles to opengl
-    float size = face->units_per_EM;
-    vector<float> vertices = {};
-    for (auto & polyline : polylines) {
-        for (auto & point : polyline) {
-            vertices.push_back(point.x / size);
-            vertices.push_back(point.y / size);
-            vertices.push_back(0.0);
+        // send triangles to opengl
+        float size = face->units_per_EM;
+        vector<float> vertices = {};
+        for (auto & polyline : polylines) {
+            for (auto & point : polyline) {
+                vertices.push_back(point.x / size);
+                vertices.push_back(point.y / size);
+                vertices.push_back(0.0);
+            }
         }
+
+        VAOs.push_back(0);
+        glGenVertexArrays(1, & VAOs.back());
+
+        GLuint VBO;
+        glGenBuffers(1, & VBO);
+
+        glBindVertexArray(VAOs.back());
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+        nverticeses.push_back(vertices.size());
+        glBufferData(GL_ARRAY_BUFFER, nverticeses.back() * sizeof(GLfloat), & vertices[0], GL_STATIC_DRAW);
     }
+}
 
-    glGenVertexArrays(1, & VAO);
+GLuint shaderProgram;
 
-    GLuint VBO;
-    glGenBuffers(1, & VBO);
-
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-    nvertices = vertices.size();
-    glBufferData(GL_ARRAY_BUFFER, nvertices * sizeof(GLfloat), & vertices[0], GL_STATIC_DRAW);
-
+void setup_shaders() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), nullptr);
     glEnableVertexAttribArray(0);
 
@@ -281,28 +272,30 @@ void setup_text() {
 int frame = 0;
 
 void draw() {
-    unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
-    unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
-    unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
-    unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+    for (int ix=0 ; ix<VAOs.size() ; ix+=1) {
+        unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
+        unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
+        unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+        unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
 
-    glUseProgram(shaderProgram);
-    glBindVertexArray(VAO);
+        glUseProgram(shaderProgram);
+        glBindVertexArray(VAOs[ix]);
 
-    float angle = frame * M_PI / 360.0;
-    glUniform3f(lightPosLoc, 10*cos(angle), 10*sin(angle), 0.0);
-    glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
-    glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
+        float angle = frame * M_PI / 360.0;
+        glUniform3f(lightPosLoc, 10*cos(angle), 10*sin(angle), 0.0);
+        glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
+        glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
 
-    glPolygonMode(GL_FRONT, GL_FILL);
-    glUniform1ui(outlineLoc, false);
-    glDrawArrays(GL_TRIANGLES, 0, nvertices);
+        glPolygonMode(GL_FRONT, GL_FILL);
+        glUniform1ui(outlineLoc, false);
+        glDrawArrays(GL_TRIANGLES, 0, nverticeses[ix]);
 
-    /*
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glUniform1ui(outlineLoc, true);
-    glDrawArrays(GL_TRIANGLES, 0, nvertices);
-    */
+        /*
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glUniform1ui(outlineLoc, true);
+        glDrawArrays(GL_TRIANGLES, 0, nvertices);
+        */
+    }
 }
 
 int FRAME_TICK;
@@ -321,7 +314,7 @@ int main(int nargs, char * args[])
 
     load_glyphs();
 
-    setup_text();
+    setup_shaders();
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
