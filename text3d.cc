@@ -13,6 +13,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/normal.hpp>
 
+#include "reactphysics3d.h"
+
 extern "C" {
 #include <SDL.h>
 #include <gl/glew.h>
@@ -25,6 +27,7 @@ extern "C" {
 }
 
 using namespace std;
+using namespace reactphysics3d;
 
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 800;
@@ -378,6 +381,41 @@ void setup_shaders() {
     glDeleteShader(fragmentShader);
 }
 
+Vector3 gravity(0.0, -9.81, 0.0);
+DynamicsWorld world(gravity);
+
+RigidBody * hello_body;
+RigidBody * world_body;
+
+void setup_physics() {
+    Transform transformH(Vector3(0.5, 0.707, -0.1), Quaternion::identity());
+    hello_body = world.createRigidBody(transformH);
+    CollisionShape * hello_shape = new BoxShape(Vector3(1.5, .333, .125));
+    decimal hello_mass(1.0);
+    hello_body->addCollisionShape(hello_shape, Transform::identity(), hello_mass);
+    hello_body->applyTorque(Vector3(0,10,0));
+
+    Transform transformW(Vector3(0.0, -1.0, 0.0), Quaternion::identity());
+    world_body = world.createRigidBody(transformW);
+    CollisionShape * world_shape = new BoxShape(Vector3(1.5, .333, .125));
+    decimal world_mass(1.0);
+    world_body->addCollisionShape(world_shape, Transform::identity(), world_mass);
+}
+
+void physics_step(float dt) {
+    // apply spring forces to words
+    Vector3 hello_pos = hello_body->getTransform().getPosition();
+    Vector3 top_force = 20 * (Vector3(0,2,0) - hello_pos);
+    hello_body->applyForceToCenterOfMass(top_force);
+
+    Vector3 world_pos = world_body->getTransform().getPosition();
+    Vector3 bottom_force = 10 * (hello_pos - world_pos);
+    hello_body->applyForceToCenterOfMass(-bottom_force);
+    world_body->applyForceToCenterOfMass(bottom_force);
+
+    world.update(dt);
+}
+
 int frame = 0;
 
 void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
@@ -419,24 +457,28 @@ void draw_hello() {
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -1.0));
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -1.5));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-    glUniform3f(lightPosLoc, 1.0, 1.0, -10.0);
+    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
     glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
 
     auto base_model = glm::mat4(1.0);
-    float scale = 1.0/3.0;
+    float scale = 1.0/2.0;
     base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
-    base_model = glm::translate(base_model, glm::vec3(0,-0.5,-1));
+    base_model = glm::translate(base_model, glm::vec3(0,-0.75,-1));
 
-    auto modelH = glm::translate(base_model, glm::vec3(0.0, 1.0, 0.0));
-    modelH = glm::rotate(modelH, glm::radians(frame * 1.0f), glm::vec3(0,1,0));
+    glm::mat4 modelH;
+    glm::mat4 phys_modelH;
+    hello_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelH));
+    modelH = base_model * phys_modelH;
     auto blue = glm::vec3(0,0,1);
     draw_word("Hello,", modelH, blue);
 
-    auto modelW = glm::translate(base_model, glm::vec3(0.0, -1.0, 0.0));
-    modelW = glm::rotate(modelW, glm::radians(frame * -1.0f), glm::vec3(0,1,0));
+    glm::mat4 modelW;
+    glm::mat4 phys_modelW;
+    world_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelW));
+    modelW = base_model * phys_modelW;
     auto green = glm::vec3(0,1,0);
     draw_word("World!", modelW, green);
 }
@@ -459,6 +501,8 @@ int main(int nargs, char * args[])
 
     setup_shaders();
 
+    setup_physics();
+
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
     SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL);
@@ -471,6 +515,8 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
+            physics_step(20.0/1000.0); // step forward 20msec
+
             // background color
             glClearColor(0.2, 0.3, 0.3, 1.0);
             glEnable(GL_DEPTH_TEST);
