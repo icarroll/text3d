@@ -10,6 +10,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/normal.hpp>
 
 extern "C" {
 #include <SDL.h>
@@ -77,6 +79,7 @@ void close()
 FT_Library ft;
 FT_Face face;
 
+// TODO move divide by font_size into pl_funcs
 int pl_moveto(const FT_Vector * FT_to, void * user) {
     auto * polylines = (vector<vector<glm::dvec3>> *) user;
     vector<glm::dvec3> polyline = {{FT_to->x, FT_to->y, 0.0}};
@@ -131,8 +134,9 @@ FT_Outline_Funcs pl_funcs = {& pl_moveto, & pl_lineto,
                              & pl_conicto, & pl_cubicto,
                              0, 0};
 
-float size;
-vector<float> vertices;
+float font_size;
+vector<float> front_vertices;
+vector<float> back_vertices;
 
 void tess_begin_cb(GLenum which) {
     //cout << "tess_begin_cb " << which << endl;
@@ -148,17 +152,28 @@ void tess_begin_cb(GLenum which) {
     }
 }
 
+const double thickness = 0.25;
+
 void tess_vertex_cb(void * vertex) {
     //cout << "tess_vertex_cb " << vertex << endl;
     double * v_in = (double *) vertex;
-    vertices.push_back(v_in[0] / size);
-    vertices.push_back(v_in[1] / size);
-    vertices.push_back(v_in[2] / size);
+    front_vertices.push_back(v_in[0] / font_size);
+    front_vertices.push_back(v_in[1] / font_size);
+    front_vertices.push_back(v_in[2] / font_size + thickness/2);
+    front_vertices.push_back(0);
+    front_vertices.push_back(0);
+    front_vertices.push_back(1);
+
+    back_vertices.push_back(v_in[0] / font_size);
+    back_vertices.push_back(v_in[1] / font_size);
+    back_vertices.push_back(v_in[2] / font_size - thickness/2);
+    back_vertices.push_back(0);
+    back_vertices.push_back(0);
+    back_vertices.push_back(-1);
 }
 
 void tess_end_cb() {
     //cout << "tess_end_cb " << endl;
-    //TODO
 }
 
 void tess_error_cb(GLenum errorCode) {
@@ -166,6 +181,13 @@ void tess_error_cb(GLenum errorCode) {
 }
 
 void tess_nothing_cb() {
+    // do nothing
+}
+
+void add_point(vector<float> & vertices, glm::dvec3 point) {
+    vertices.push_back(point.x);
+    vertices.push_back(point.y);
+    vertices.push_back(point.z);
 }
 
 struct Character {
@@ -179,7 +201,7 @@ vector<Character> Characters(128);
 void load_glyphs() {
     if (FT_Init_FreeType(& ft)) die("freetype");
     if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
-    size = face->units_per_EM;
+    font_size = face->units_per_EM;
 
     for (char c=0 ; c<=126 ; c+=1) { // char 127 hangs for some reason
         if (FT_Load_Char(face, c, FT_LOAD_NO_SCALE)) die("glyph");
@@ -189,7 +211,7 @@ void load_glyphs() {
         vector<vector<glm::dvec3>> polylines;
         FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
 
-        // mesh polylines to triangles
+        // mesh polylines to triangles (both front and back face)
         // TODO use standalone tesselator instead of GLU's
         auto tobj = gluNewTess();
         gluTessCallback(tobj, GLU_TESS_BEGIN, (void (__stdcall *)(void)) tess_begin_cb);
@@ -199,11 +221,12 @@ void load_glyphs() {
         // for now, make the tesselator not do strips and fans
         gluTessCallback(tobj, GLU_TESS_EDGE_FLAG, (void (__stdcall *)(void)) tess_nothing_cb);
 
-        vertices = {};
+        front_vertices = {};
+        back_vertices = {};
         gluTessBeginPolygon(tobj, nullptr);
         for (auto & polyline : polylines) {
             gluTessBeginContour(tobj);
-            for (glm::dvec3 & point : polyline) {
+            for (auto & point : polyline) {
                 gluTessVertex(tobj, glm::value_ptr(point),
                               glm::value_ptr(point));
             }
@@ -211,9 +234,40 @@ void load_glyphs() {
         }
         gluTessEndPolygon(tobj);
 
+	// add sides
+        double font_ratio = 1/font_size;
+        auto half_deep = glm::dvec3(0,0,thickness/2);
+	vector<float> side_vertices = {};
+	for (auto & polyline : polylines) {
+            auto prev_point = polyline.back();
+            for (glm::dvec3 & point : polyline) {
+                glm::dvec3 normal = glm::triangleNormal(
+                        prev_point * font_ratio - half_deep,
+                        point * font_ratio + half_deep,
+                        point * font_ratio - half_deep
+                );
+
+                add_point(side_vertices, point * font_ratio + half_deep);
+                add_point(side_vertices, normal);
+                add_point(side_vertices, prev_point * font_ratio - half_deep);
+                add_point(side_vertices, normal);
+                add_point(side_vertices, point * font_ratio - half_deep);
+                add_point(side_vertices, normal);
+
+                add_point(side_vertices, point * font_ratio + half_deep);
+                add_point(side_vertices, normal);
+                add_point(side_vertices, prev_point * font_ratio + half_deep);
+                add_point(side_vertices, normal);
+                add_point(side_vertices, prev_point * font_ratio - half_deep);
+                add_point(side_vertices, normal);
+
+                prev_point = point;
+            }
+	}
+
         // send triangles to opengl
         Character & ch = Characters[c];
-        ch.advance_x = face->glyph->advance.x / size;
+        ch.advance_x = face->glyph->advance.x / font_size;
 
         glGenVertexArrays(1, & ch.VAO);
 
@@ -223,11 +277,22 @@ void load_glyphs() {
         glBindVertexArray(ch.VAO);
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
+        vector<float> vertices;
+        vertices.reserve(front_vertices.size() + back_vertices.size() + side_vertices.size());
+        vertices.insert(vertices.end(), front_vertices.begin(), front_vertices.end());
+        vertices.insert(vertices.end(), back_vertices.begin(), back_vertices.end());
+        vertices.insert(vertices.end(), side_vertices.begin(), side_vertices.end());
+
         ch.nvertices = vertices.size();
         glBufferData(GL_ARRAY_BUFFER, ch.nvertices * sizeof(GLfloat), & vertices[0], GL_STATIC_DRAW);
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), nullptr);
+        // vertex positions
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
         glEnableVertexAttribArray(0);
+
+        // vertex normals
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void *) (3*sizeof(float)));
+        glEnableVertexAttribArray(1);
     }
 }
 
@@ -238,6 +303,7 @@ void setup_shaders() {
     const char * vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
+        "layout (location = 1) in vec3 aNormal;\n"
         "out vec3 FragPos;\n"
         "out vec3 Normal;\n"
         "uniform mat4 projection;\n"
@@ -245,7 +311,7 @@ void setup_shaders() {
         "uniform mat4 model;\n"
         "void main() {\n"
         "  FragPos = aPos;\n"
-        "  Normal = vec3(0,0,1);\n" // punt
+        "  Normal = mat3(transpose(inverse(model))) * aNormal;\n"
         "  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
         "}";
     unsigned int vertexShader;
