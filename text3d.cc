@@ -190,6 +190,7 @@ void load_glyphs() {
         FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
 
         // mesh polylines to triangles
+        // TODO use standalone tesselator instead of GLU's
         auto tobj = gluNewTess();
         gluTessCallback(tobj, GLU_TESS_BEGIN, (void (__stdcall *)(void)) tess_begin_cb);
         gluTessCallback(tobj, GLU_TESS_VERTEX, (void (__stdcall *)(void)) tess_vertex_cb);
@@ -239,11 +240,13 @@ void setup_shaders() {
         "layout (location = 0) in vec3 aPos;\n"
         "out vec3 FragPos;\n"
         "out vec3 Normal;\n"
+        "uniform mat4 projection;\n"
+        "uniform mat4 view;\n"
         "uniform mat4 model;\n"
         "void main() {\n"
         "  FragPos = aPos;\n"
-        "  Normal = aPos;\n" // still cheating even though no longer sphere
-        "  gl_Position = model * vec4(aPos, 1.0);\n"
+        "  Normal = vec3(0,0,1);\n" // punt
+        "  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
         "}";
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -264,29 +267,25 @@ void setup_shaders() {
         "out vec4 FragColor;\n"
         "in vec3 FragPos;\n"
         "in vec3 Normal;\n"
-        "uniform bool outline;\n"
         "uniform vec3 lightPos;\n"
         "uniform vec3 lightColor;\n"
         "uniform vec3 objectColor;\n"
         "void main() {\n"
-        "  if (outline) FragColor = vec4(0.2f,0.2f,0.2f,1.0f);\n"
-        "  else {\n"
-        "    float ambientStrength = 0.1;\n"
-        "    vec3 ambient = ambientStrength * lightColor;\n"
-        "    vec3 norm = -normalize(Normal);\n"
-        "    vec3 lightDir = normalize(lightPos - FragPos);\n"
-        "    float diff = max(dot(norm, lightDir), 0.0);\n"
-        "    vec3 diffuse = diff * lightColor;\n"
-        "    float specularStrength = 0.25;\n"
-        "    vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
-        "    vec3 viewDir = normalize(viewPos - FragPos);\n"
-        "    vec3 reflectDir = reflect(-lightDir, norm);\n"
-        "    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
-        "    vec3 specular = specularStrength * spec * lightColor;\n"
-        "    \n"
-        "    vec3 result = (ambient + diffuse + specular) * objectColor;\n"
-        "    FragColor = vec4(result, 1.0);\n"
-        "  }\n"
+        "  float ambientStrength = 0.1;\n"
+        "  vec3 ambient = ambientStrength * lightColor;\n"
+        "  vec3 norm = -normalize(Normal);\n"
+        "  vec3 lightDir = normalize(lightPos - FragPos);\n"
+        "  float diff = max(dot(norm, lightDir), 0.0);\n"
+        "  vec3 diffuse = diff * lightColor;\n"
+        "  float specularStrength = 0.25;\n"
+        "  vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
+        "  vec3 viewDir = normalize(viewPos - FragPos);\n"
+        "  vec3 reflectDir = reflect(-lightDir, norm);\n"
+        "  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
+        "  vec3 specular = specularStrength * spec * lightColor;\n"
+        "  \n"
+        "  vec3 result = (ambient + diffuse + specular) * objectColor;\n"
+        "  FragColor = vec4(result, 1.0);\n"
         "}";
     unsigned int fragmentShader;
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -315,43 +314,64 @@ void setup_shaders() {
 
 int frame = 0;
 
-void draw() {
-    float x = -3.0;
-    for (char c : "Hello, World!") {
+void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
+    unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
+    unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+
+    glBindVertexArray(ch.VAO);
+
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
+
+    glPolygonMode(GL_FRONT, GL_FILL);
+    glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
+}
+
+void draw_hello() {
+    auto base_model = glm::mat4(1.0);
+    float scale = 1.0/3.0;
+    base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
+
+    glUseProgram(shaderProgram);
+    unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+    unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
+    unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
+    unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+
+    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+    auto view = glm::mat4(1.0f);
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -1.0));
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+    glUniform3f(lightPosLoc, 1.0, 1.0, -10.0);
+    glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
+
+    float x = -1.5;
+    float y = 0.5;
+    for (char c : "Hello,") {
         if (c == '\0') continue;
+
         Character & ch = Characters[c];
-
-        glUseProgram(shaderProgram);
-        unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
-        unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
-        unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
-        unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
-        unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-
-        glBindVertexArray(ch.VAO);
-
-        auto model = glm::mat4(1.0f);
-        float scale = 1.0/3.0;
-        model = glm::scale(model, glm::vec3(scale, scale, scale));
-        model = glm::translate(model, glm::vec3(x, -0.5f, 0.0f));
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        auto model = glm::translate(base_model, glm::vec3(x, y, -1.0f));
+        auto color = glm::vec3(0,0,1);
+        draw_letter(ch, model, color);
 
         x += ch.advance_x;
+    }
 
-        float angle = frame * M_PI / 360.0;
-        glUniform3f(lightPosLoc, 10*cos(angle), 10*sin(angle), 0.0);
-        glUniform3f(lightColorLoc, 0.9, 0.9, 1.0);
-        glUniform3f(objectColorLoc, 0.1, 1.0, 0.1);
+    x = -1.5;
+    y = -1.0;
+    for (char c : "World!") {
+        if (c == '\0') continue;
 
-        glPolygonMode(GL_FRONT, GL_FILL);
-        glUniform1ui(outlineLoc, false);
-        glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
+        Character & ch = Characters[c];
+        auto model = glm::translate(base_model, glm::vec3(x, y, -1.0f));
+        auto color = glm::vec3(0,1,0);
+        draw_letter(ch, model, color);
 
-        /*
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glUniform1ui(outlineLoc, true);
-        glDrawArrays(GL_TRIANGLES, 0, nvertices);
-        */
+        x += ch.advance_x;
     }
 }
 
@@ -390,7 +410,7 @@ int main(int nargs, char * args[])
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            draw();
+            draw_hello();
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
