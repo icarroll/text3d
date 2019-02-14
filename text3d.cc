@@ -327,11 +327,22 @@ void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
     glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
 }
 
-void draw_hello() {
-    auto base_model = glm::mat4(1.0);
-    float scale = 1.0/3.0;
-    base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
+void draw_word(string word, glm::mat4 base_model, glm::vec3 color) {
+    float width = 0.0;
+    for (char c : word) if (c != '\0') width += Characters[c].advance_x;
+    float x = -width/2;
+    for (char c : word) {
+        if (c == '\0') continue;
 
+        Character & ch = Characters[c];
+        auto model = glm::translate(base_model, glm::vec3(x, 0.0f, 0.0f));
+        draw_letter(ch, model, color);
+
+        x += ch.advance_x;
+    }
+}
+
+void draw_hello() {
     glUseProgram(shaderProgram);
     unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
@@ -348,31 +359,20 @@ void draw_hello() {
     glUniform3f(lightPosLoc, 1.0, 1.0, -10.0);
     glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
 
-    float x = -1.5;
-    float y = 0.5;
-    for (char c : "Hello,") {
-        if (c == '\0') continue;
+    auto base_model = glm::mat4(1.0);
+    float scale = 1.0/3.0;
+    base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
+    base_model = glm::translate(base_model, glm::vec3(0,-0.5,-1));
 
-        Character & ch = Characters[c];
-        auto model = glm::translate(base_model, glm::vec3(x, y, -1.0f));
-        auto color = glm::vec3(0,0,1);
-        draw_letter(ch, model, color);
+    auto modelH = glm::translate(base_model, glm::vec3(0.0, 1.0, 0.0));
+    modelH = glm::rotate(modelH, glm::radians(frame * 1.0f), glm::vec3(0,1,0));
+    auto blue = glm::vec3(0,0,1);
+    draw_word("Hello,", modelH, blue);
 
-        x += ch.advance_x;
-    }
-
-    x = -1.5;
-    y = -1.0;
-    for (char c : "World!") {
-        if (c == '\0') continue;
-
-        Character & ch = Characters[c];
-        auto model = glm::translate(base_model, glm::vec3(x, y, -1.0f));
-        auto color = glm::vec3(0,1,0);
-        draw_letter(ch, model, color);
-
-        x += ch.advance_x;
-    }
+    auto modelW = glm::translate(base_model, glm::vec3(0.0, -1.0, 0.0));
+    modelW = glm::rotate(modelW, glm::radians(frame * -1.0f), glm::vec3(0,1,0));
+    auto green = glm::vec3(0,1,0);
+    draw_word("World!", modelW, green);
 }
 
 int FRAME_TICK;
