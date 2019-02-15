@@ -203,7 +203,7 @@ vector<Character> Characters(128);
 
 void load_glyphs() {
     if (FT_Init_FreeType(& ft)) die("freetype");
-    if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
+    if (FT_New_Face(ft, "georgiab.ttf", 0, & face)) die("font");
     font_size = face->units_per_EM;
 
     for (char c=0 ; c<=126 ; c+=1) { // char 127 hangs for some reason
