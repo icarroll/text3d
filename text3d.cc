@@ -388,32 +388,41 @@ RigidBody * hello_body;
 RigidBody * world_body;
 
 void setup_physics() {
-    Transform transformH(Vector3(0.5, 0.707, -0.1), Quaternion::identity());
+    Transform transformH(Vector3(1.707, 0.707, -0.25), Quaternion::identity());
     hello_body = world.createRigidBody(transformH);
     CollisionShape * hello_shape = new BoxShape(Vector3(1.5, .333, .125));
     decimal hello_mass(1.0);
     hello_body->addCollisionShape(hello_shape, Transform::identity(), hello_mass);
-    hello_body->applyTorque(Vector3(0,10,0));
+    //hello_body->applyTorque(Vector3(0,20,0));
 
-    Transform transformW(Vector3(0.0, -1.0, 0.0), Quaternion::identity());
+    Transform transformW(Vector3(1.0, -1.0, 0.25), Quaternion::identity());
     world_body = world.createRigidBody(transformW);
     CollisionShape * world_shape = new BoxShape(Vector3(1.5, .333, .125));
-    decimal world_mass(1.0);
+    decimal world_mass(2.0);
     world_body->addCollisionShape(world_shape, Transform::identity(), world_mass);
 }
 
+float time_step = 1.0 / 1000.0;
+
 void physics_step(float dt) {
-    // apply spring forces to words
-    Vector3 hello_pos = hello_body->getTransform().getPosition();
-    Vector3 top_force = 20 * (Vector3(0,2,0) - hello_pos);
-    hello_body->applyForceToCenterOfMass(top_force);
+    for (float n=0 ; n<dt ; n+=time_step) {
+        // apply spring forces to words
+        Transform hello_trans = hello_body->getTransform();
+        Vector3 hello_pos = hello_trans.getPosition();
+        Vector3 hello_top = hello_trans * Vector3(0,.333,0);
+        Vector3 hello_bot = hello_trans * Vector3(0,-.333,0);
+        Vector3 top_force = 30 * (Vector3(0,2.5,0) - hello_top);
+        hello_body->applyForce(top_force, hello_top);
 
-    Vector3 world_pos = world_body->getTransform().getPosition();
-    Vector3 bottom_force = 10 * (hello_pos - world_pos);
-    hello_body->applyForceToCenterOfMass(-bottom_force);
-    world_body->applyForceToCenterOfMass(bottom_force);
+        Transform world_trans = world_body->getTransform();
+        Vector3 world_pos = world_trans.getPosition();
+        Vector3 world_top = world_trans * Vector3(0,.333,0);
+        Vector3 bottom_force = 20 * (hello_bot - world_top);
+        hello_body->applyForce(-bottom_force, hello_bot);
+        world_body->applyForce(bottom_force, world_top);
 
-    world.update(dt);
+        world.update(time_step);
+    }
 }
 
 int frame = 0;
@@ -466,12 +475,13 @@ void draw_hello() {
     auto base_model = glm::mat4(1.0);
     float scale = 1.0/2.0;
     base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
-    base_model = glm::translate(base_model, glm::vec3(0,-0.75,-1));
+    //base_model = glm::translate(base_model, glm::vec3(0,0,-1));
 
     glm::mat4 modelH;
     glm::mat4 phys_modelH;
     hello_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelH));
     modelH = base_model * phys_modelH;
+    modelH = glm::translate(modelH, glm::vec3(0,-0.5,0));
     auto blue = glm::vec3(0,0,1);
     draw_word("Hello,", modelH, blue);
 
@@ -479,6 +489,7 @@ void draw_hello() {
     glm::mat4 phys_modelW;
     world_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelW));
     modelW = base_model * phys_modelW;
+    modelW = glm::translate(modelW, glm::vec3(0,-0.5,0));
     auto green = glm::vec3(0,1,0);
     draw_word("World!", modelW, green);
 }
