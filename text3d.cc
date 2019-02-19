@@ -155,21 +155,21 @@ void tess_begin_cb(GLenum which) {
     }
 }
 
-const double thickness = 0.25;
+const double THICKNESS = 0.25;
 
 void tess_vertex_cb(void * vertex) {
     //cout << "tess_vertex_cb " << vertex << endl;
     double * v_in = (double *) vertex;
     front_vertices.push_back(v_in[0] / font_size);
     front_vertices.push_back(v_in[1] / font_size);
-    front_vertices.push_back(v_in[2] / font_size + thickness/2);
+    front_vertices.push_back(v_in[2] / font_size + THICKNESS/2);
     front_vertices.push_back(0);
     front_vertices.push_back(0);
     front_vertices.push_back(1);
 
     back_vertices.push_back(v_in[0] / font_size);
     back_vertices.push_back(v_in[1] / font_size);
-    back_vertices.push_back(v_in[2] / font_size - thickness/2);
+    back_vertices.push_back(v_in[2] / font_size - THICKNESS/2);
     back_vertices.push_back(0);
     back_vertices.push_back(0);
     back_vertices.push_back(-1);
@@ -194,7 +194,9 @@ void add_point(vector<float> & vertices, glm::dvec3 point) {
 }
 
 struct Character {
-    GLfloat advance_x;
+    float advance_x;
+    float top;
+    float bot;
     GLuint VAO;
     int nvertices;
 };
@@ -239,7 +241,7 @@ void load_glyphs() {
 
 	// add sides
         double font_ratio = 1/font_size;
-        auto half_deep = glm::dvec3(0,0,thickness/2);
+        auto half_deep = glm::dvec3(0,0,THICKNESS/2);
 	vector<float> side_vertices = {};
 	for (auto & polyline : polylines) {
             auto prev_point = polyline.back();
@@ -287,7 +289,7 @@ void load_glyphs() {
         vertices.insert(vertices.end(), side_vertices.begin(), side_vertices.end());
 
         ch.nvertices = vertices.size();
-        glBufferData(GL_ARRAY_BUFFER, ch.nvertices * sizeof(GLfloat), & vertices[0], GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, ch.nvertices * sizeof(float), & vertices[0], GL_STATIC_DRAW);
 
         // vertex positions
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
@@ -384,48 +386,50 @@ void setup_shaders() {
 Vector3 gravity(0.0, -9.81, 0.0);
 DynamicsWorld world(gravity);
 
-RigidBody * hello_body;
-RigidBody * world_body;
+struct spring {
+    RigidBody * from_body;
+    Vector3 from_con;
+    RigidBody * to_body;
+    Vector3 to_con;
+    float strength;
+    float rest_length;
 
-void setup_physics() {
-    Transform transformH(Vector3(1.707, 0.707, -0.25), Quaternion::identity());
-    hello_body = world.createRigidBody(transformH);
-    CollisionShape * hello_shape = new BoxShape(Vector3(1.5, .333, .125));
-    decimal hello_mass(1.0);
-    hello_body->addCollisionShape(hello_shape, Transform::identity(), hello_mass);
-    //hello_body->applyTorque(Vector3(0,20,0));
+    void apply_force();
+};
 
-    Transform transformW(Vector3(1.0, -1.0, 0.25), Quaternion::identity());
-    world_body = world.createRigidBody(transformW);
-    CollisionShape * world_shape = new BoxShape(Vector3(1.5, .333, .125));
-    decimal world_mass(2.0);
-    world_body->addCollisionShape(world_shape, Transform::identity(), world_mass);
+void spring::apply_force() {
+    Vector3 from_point = from_con;
+    if (from_body) from_point = from_body->getTransform() * from_con;
+
+    Vector3 to_point = to_con;
+    if (to_body) to_point = to_body->getTransform() * to_con;
+
+    Vector3 delta = from_point - to_point;
+    Vector3 delta_unit = delta.getUnit();
+    float delta_length = delta.length();
+    Vector3 force = strength * (delta_length - rest_length) * delta_unit;
+
+    if (from_body) from_body->applyForce(-force, from_point);
+    if (to_body) to_body->applyForce(force, to_point);
 }
 
-float time_step = 1.0 / 1000.0;
+float word_width(string word) {
+    float width = 0.0;
+    for (char c : word) if (c != '\0') width += Characters[c].advance_x;
+    return width;
+}
 
-void physics_step(float dt) {
-    for (float n=0 ; n<dt ; n+=time_step) {
-        // apply spring forces to words
-        Transform hello_trans = hello_body->getTransform();
-        Vector3 hello_pos = hello_trans.getPosition();
-        Vector3 hello_top = hello_trans * Vector3(0,.333,0);
-        Vector3 hello_bot = hello_trans * Vector3(0,-.333,0);
-        Vector3 top_force = 30 * (Vector3(0,2.5,0) - hello_top);
-        hello_body->applyForce(top_force, hello_top);
-
-        Transform world_trans = world_body->getTransform();
-        Vector3 world_pos = world_trans.getPosition();
-        Vector3 world_top = world_trans * Vector3(0,.333,0);
-        Vector3 bottom_force = 20 * (hello_bot - world_top);
-        hello_body->applyForce(-bottom_force, hello_bot);
-        world_body->applyForce(bottom_force, world_top);
-
-        world.update(time_step);
+float word_height(string word) {
+    float top = -INFINITY;
+    float bot = INFINITY;
+    for (char c : word) {
+        if (c == '\0') continue;
+        Character ch = Characters[c];
+        if (ch.top > top) top = ch.top;
+        if (ch.bot < bot) bot = ch.bot;
     }
+    return top - bot;
 }
-
-int frame = 0;
 
 void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
     unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -441,9 +445,7 @@ void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
 }
 
 void draw_word(string word, glm::mat4 base_model, glm::vec3 color) {
-    float width = 0.0;
-    for (char c : word) if (c != '\0') width += Characters[c].advance_x;
-    float x = -width/2;
+    float x = -word_width(word)/2;
     for (char c : word) {
         if (c == '\0') continue;
 
@@ -455,7 +457,78 @@ void draw_word(string word, glm::mat4 base_model, glm::vec3 color) {
     }
 }
 
-void draw_hello() {
+struct ext_text {
+    string text;
+    float width;
+    float height;
+    float depth;
+    float mass;
+    glm::vec3 color;
+    RigidBody * body;
+
+    ext_text() {}
+    ext_text(string text, float mass, glm::vec3 color, Transform t=Transform());
+
+    void draw(glm::mat4 base_model);
+};
+
+ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform t) {
+    text = newtext;
+    width = word_width(text);
+    //height = word_height(text);
+    height = 0.667;
+    depth = THICKNESS;
+    mass = newmass;
+    color = newcolor;
+
+    body = world.createRigidBody(t);
+    CollisionShape * shape = new BoxShape(Vector3(width/2, height/2, depth/2));
+    body->addCollisionShape(shape, Transform(), mass);
+}
+
+void ext_text::draw(glm::mat4 base_model) {
+    glm::mat4 model;
+    body->getTransform().getOpenGLMatrix(glm::value_ptr(model));
+    model = glm::translate(base_model * model, glm::vec3(0,-0.5,0));
+    draw_word(text, model, color);
+}
+
+auto green = glm::vec3(0,1,0);
+auto blue = glm::vec3(0,0,1);
+
+ext_text words[2];
+
+spring springs[4];
+
+void setup_scene() {
+    words[0] = ext_text("Hello,", 1, blue, Transform(Vector3(-1.5, 1.0, -0.25), Quaternion::identity()));
+    words[1] = ext_text("World!", 1, green, Transform(Vector3(1.5, -1.0, 0.25), Quaternion::identity()));
+
+    springs[0] = {nullptr, Vector3(-1.5,2.5,0),
+                  words[0].body, Vector3(-1.5,.333,0),
+                  50, 1.0};
+    springs[1] = {nullptr, Vector3(1.5,2.5,0),
+                  words[0].body, Vector3(1.5,.333,0),
+                  50, 1.0};
+
+    springs[2] = {words[0].body, Vector3(-1.5,-.333,0),
+                  words[1].body, Vector3(-1.5,.333,0),
+                  50, 1.0};
+    springs[3] = {words[0].body, Vector3(1.5,-.333,0),
+                  words[1].body, Vector3(1.5,.333,0),
+                  50, 1.0};
+}
+
+float time_step = 1.0 / 1000.0;
+void physics_step(float dt) {
+    for (float n=0 ; n<dt ; n+=time_step) {
+        for (auto spring : springs) spring.apply_force();
+
+        world.update(time_step);
+    }
+}
+
+void draw_scene() {
     glUseProgram(shaderProgram);
     unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
@@ -466,32 +539,14 @@ void draw_hello() {
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -1.5));
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -3.0));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
     glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
     glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
 
     auto base_model = glm::mat4(1.0);
-    float scale = 1.0/2.0;
-    base_model = glm::scale(base_model, glm::vec3(scale, scale, scale));
-    //base_model = glm::translate(base_model, glm::vec3(0,0,-1));
-
-    glm::mat4 modelH;
-    glm::mat4 phys_modelH;
-    hello_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelH));
-    modelH = base_model * phys_modelH;
-    modelH = glm::translate(modelH, glm::vec3(0,-0.5,0));
-    auto blue = glm::vec3(0,0,1);
-    draw_word("Hello,", modelH, blue);
-
-    glm::mat4 modelW;
-    glm::mat4 phys_modelW;
-    world_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_modelW));
-    modelW = base_model * phys_modelW;
-    modelW = glm::translate(modelW, glm::vec3(0,-0.5,0));
-    auto green = glm::vec3(0,1,0);
-    draw_word("World!", modelW, green);
+    for (auto word : words) word.draw(base_model);
 }
 
 int FRAME_TICK;
@@ -504,6 +559,8 @@ uint32_t timer_callback(uint32_t interval, void * param) {
     return interval;
 }
 
+int frame = 0;
+
 int main(int nargs, char * args[])
 {
     init();
@@ -512,7 +569,7 @@ int main(int nargs, char * args[])
 
     setup_shaders();
 
-    setup_physics();
+    setup_scene();
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
@@ -533,7 +590,7 @@ int main(int nargs, char * args[])
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            draw_hello();
+            draw_scene();
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
