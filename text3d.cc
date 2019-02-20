@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include <map>
 #include <random>
 #include <string>
@@ -14,6 +15,10 @@
 #include <glm/gtx/normal.hpp>
 
 #include "reactphysics3d.h"
+
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
 
 extern "C" {
 #include <SDL.h>
@@ -239,11 +244,11 @@ void load_glyphs() {
         }
         gluTessEndPolygon(tobj);
 
-	// add sides
+        // add sides
         double font_ratio = 1/font_size;
         auto half_deep = glm::dvec3(0,0,THICKNESS/2);
-	vector<float> side_vertices = {};
-	for (auto & polyline : polylines) {
+        vector<float> side_vertices = {};
+        for (auto & polyline : polylines) {
             auto prev_point = polyline.back();
             for (glm::dvec3 & point : polyline) {
                 glm::dvec3 normal = glm::triangleNormal(
@@ -268,7 +273,7 @@ void load_glyphs() {
 
                 prev_point = point;
             }
-	}
+        }
 
         // send triangles to opengl
         Character & ch = Characters[c];
@@ -465,23 +470,24 @@ struct ext_text {
     float mass;
     glm::vec3 color;
     RigidBody * body;
+    glm::mat4 draw_transform = glm::translate(glm::mat4(1.0), glm::vec3(0,-0.5,0)); // TODO derive this from text geometry
 
     ext_text() {}
-    ext_text(string text, float mass, glm::vec3 color, Transform t=Transform());
+    ext_text(string text, float mass, glm::vec3 color, Transform pose=Transform());
 
     void draw(glm::mat4 base_model);
 };
 
-ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform t) {
+ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform pose) {
     text = newtext;
     width = word_width(text);
     //height = word_height(text);
-    height = 0.667;
+    height = 0.667; // TODO derive this from text geometry
     depth = THICKNESS;
     mass = newmass;
     color = newcolor;
 
-    body = world.createRigidBody(t);
+    body = world.createRigidBody(pose);
     CollisionShape * shape = new BoxShape(Vector3(width/2, height/2, depth/2));
     body->addCollisionShape(shape, Transform(), mass);
 }
@@ -489,34 +495,73 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform 
 void ext_text::draw(glm::mat4 base_model) {
     glm::mat4 model;
     body->getTransform().getOpenGLMatrix(glm::value_ptr(model));
-    model = glm::translate(base_model * model, glm::vec3(0,-0.5,0));
+    model = base_model * model * draw_transform;
     draw_word(text, model, color);
 }
 
-auto green = glm::vec3(0,1,0);
-auto blue = glm::vec3(0,0,1);
-
-ext_text words[2];
-
-spring springs[4];
+vector<ext_text> words;
+vector<spring> springs;
 
 void setup_scene() {
-    words[0] = ext_text("Hello,", 1, blue, Transform(Vector3(-1.5, 1.0, -0.25), Quaternion::identity()));
-    words[1] = ext_text("World!", 1, green, Transform(Vector3(1.5, -1.0, 0.25), Quaternion::identity()));
+    // read words from Lua file
+    lua_State * L = luaL_newstate();
 
-    springs[0] = {nullptr, Vector3(-1.5,2.5,0),
-                  words[0].body, Vector3(-1.5,.333,0),
-                  50, 1.0};
-    springs[1] = {nullptr, Vector3(1.5,2.5,0),
-                  words[0].body, Vector3(1.5,.333,0),
-                  50, 1.0};
+    ifstream luargb("rgb.lua");
+    string line;
+    while (! luargb.eof()) {
+        getline(luargb, line);
+        int error = luaL_loadstring(L, line.c_str()) || lua_pcall(L, 0, 0, 0);
+        if (error) die("lua");
+    }
+    luargb.close();
 
-    springs[2] = {words[0].body, Vector3(-1.5,-.333,0),
-                  words[1].body, Vector3(-1.5,.333,0),
-                  50, 1.0};
-    springs[3] = {words[0].body, Vector3(1.5,-.333,0),
-                  words[1].body, Vector3(1.5,.333,0),
-                  50, 1.0};
+    ifstream luaconf("text3d_conf.lua");
+    while (! luaconf.eof()) {
+        getline(luaconf, line);
+        int error = luaL_loadstring(L, line.c_str()) || lua_pcall(L, 0, 0, 0);
+        if (error) die("lua");
+    }
+    luaconf.close();
+
+    RigidBody * prevbody = nullptr;
+
+    lua_getglobal(L, "words");
+    int nwords = luaL_len(L, -1);
+    for (int n=1 ; n<=nwords ; n+=1) {
+        lua_getglobal(L, "words");
+        lua_geti(L, -1, n);
+        string text(lua_tostring(L, -1));
+
+        glm::vec3 color;
+        lua_getglobal(L, "colors");
+        lua_geti(L, -1, n);
+        lua_getfield(L, -1, "red");
+        color[0] = lua_tonumber(L, -1);
+        lua_getglobal(L, "colors");
+        lua_geti(L, -1, n);
+        lua_getfield(L, -1, "green");
+        color[1] = lua_tonumber(L, -1);
+        lua_getglobal(L, "colors");
+        lua_geti(L, -1, n);
+        lua_getfield(L, -1, "blue");
+        color[2] = lua_tonumber(L, -1);
+
+        ext_text word = ext_text(text, 1, color, Transform(Vector3(0, 0, 0), Quaternion::identity()));
+        words.push_back(word);
+
+        spring s;
+        float y = prevbody == nullptr ? 2.5 : -0.333;
+        s = {prevbody, Vector3(-1.5,y,0),
+             word.body, Vector3(-1.5,.333,0),
+             50, 1.0};
+        springs.push_back(s);
+        s = {prevbody, Vector3(1.5,y,0),
+             word.body, Vector3(1.5,.333,0),
+             50, 1.0};
+        springs.push_back(s);
+
+        prevbody = word.body;
+    }
 }
 
 float time_step = 1.0 / 1000.0;
