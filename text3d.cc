@@ -24,7 +24,8 @@ extern "C" {
 #include <SDL.h>
 #include <gl/glew.h>
 #include <SDL_opengl.h>
-#include <gl/glu.h>
+
+#include "tesselator.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -32,7 +33,7 @@ extern "C" {
 }
 
 using namespace std;
-using namespace reactphysics3d;
+//using namespace reactphysics3d;
 
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 800;
@@ -89,28 +90,28 @@ FT_Face face;
 
 // TODO move divide by font_size into pl_funcs
 int pl_moveto(const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::dvec3>> *) user;
-    vector<glm::dvec3> polyline = {{FT_to->x, FT_to->y, 0.0}};
+    auto * polylines = (vector<vector<glm::vec3>> *) user;
+    vector<glm::vec3> polyline = {{FT_to->x, FT_to->y, 0.0}};
     polylines->push_back(polyline);
     return 0;
 }
 
 int pl_lineto(const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::dvec3>> *) user;
-    vector<glm::dvec3> & polyline = polylines->back();
+    auto * polylines = (vector<vector<glm::vec3>> *) user;
+    vector<glm::vec3> & polyline = polylines->back();
     polyline.push_back({FT_to->x, FT_to->y, 0.0});
     return 0;
 }
 
 int pl_conicto(const FT_Vector * FT_ctl, const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::dvec3>> *) user;
-    vector<glm::dvec3> & polyline = polylines->back();
+    auto * polylines = (vector<vector<glm::vec3>> *) user;
+    vector<glm::vec3> & polyline = polylines->back();
 
-    glm::dvec3 & from = polyline.back();
-    glm::dvec3 ctl = {FT_ctl->x, FT_ctl->y, 0.0};
-    glm::dvec3 to = {FT_to->x, FT_to->y, 0.0};
+    glm::vec3 & from = polyline.back();
+    glm::vec3 ctl = {FT_ctl->x, FT_ctl->y, 0.0};
+    glm::vec3 to = {FT_to->x, FT_to->y, 0.0};
 
-    glm::dvec3 mid = 0.25 * from + 0.5 * ctl + 0.25 * to;
+    glm::vec3 mid = 0.25f * from + 0.5f * ctl + 0.25f * to;
 
     polyline.push_back(mid);
     polyline.push_back(to);
@@ -119,18 +120,18 @@ int pl_conicto(const FT_Vector * FT_ctl, const FT_Vector * FT_to, void * user) {
 
 int pl_cubicto(const FT_Vector * FT_ctl1, const FT_Vector * FT_ctl2,
             const FT_Vector * FT_to, void * user) {
-    auto * polylines = (vector<vector<glm::dvec3>> *) user;
-    vector<glm::dvec3> & polyline = polylines->back();
+    auto * polylines = (vector<vector<glm::vec3>> *) user;
+    vector<glm::vec3> & polyline = polylines->back();
 
-    glm::dvec3 & from = polyline.back();
-    glm::dvec3 ctl1 = {FT_ctl1->x, FT_ctl1->y, 0.0};
-    glm::dvec3 ctl2 = {FT_ctl2->x, FT_ctl2->y, 0.0};
-    glm::dvec3 to = {FT_to->x, FT_to->y, 0.0};
+    glm::vec3 & from = polyline.back();
+    glm::vec3 ctl1 = {FT_ctl1->x, FT_ctl1->y, 0.0};
+    glm::vec3 ctl2 = {FT_ctl2->x, FT_ctl2->y, 0.0};
+    glm::vec3 to = {FT_to->x, FT_to->y, 0.0};
 
-    glm::dvec3 mid1 = 0.2963 * from + 0.4444 * ctl1 + 0.2222 * ctl2
-                      + 0.0370 * to;
-    glm::dvec3 mid2 = 0.0370 * from + 0.2222 * ctl1 + 0.4444 * ctl2
-                      + 0.2963 * to;
+    glm::vec3 mid1 = 0.2963f * from + 0.4444f * ctl1 + 0.2222f * ctl2
+                     + 0.0370f * to;
+    glm::vec3 mid2 = 0.0370f * from + 0.2222f * ctl1 + 0.4444f * ctl2
+                     + 0.2963f * to;
 
     polyline.push_back(mid1);
     polyline.push_back(mid2);
@@ -146,25 +147,12 @@ float font_size;
 vector<float> front_vertices;
 vector<float> back_vertices;
 
-void tess_begin_cb(GLenum which) {
-    //cout << "tess_begin_cb " << which << endl;
-    switch (which) {
-        case GL_TRIANGLES:
-            break;
-        case GL_TRIANGLE_STRIP:
-            // fallthrough
-        case GL_TRIANGLE_FAN:
-            // fallthrough
-        default:
-            die("unimplemented which");
-    }
-}
+const float THICKNESS = 0.25;
 
-const double THICKNESS = 0.25;
-
+/*
 void tess_vertex_cb(void * vertex) {
     //cout << "tess_vertex_cb " << vertex << endl;
-    double * v_in = (double *) vertex;
+    float * v_in = (float *) vertex;
     front_vertices.push_back(v_in[0] / font_size);
     front_vertices.push_back(v_in[1] / font_size);
     front_vertices.push_back(v_in[2] / font_size + THICKNESS/2);
@@ -179,20 +167,9 @@ void tess_vertex_cb(void * vertex) {
     back_vertices.push_back(0);
     back_vertices.push_back(-1);
 }
+*/
 
-void tess_end_cb() {
-    //cout << "tess_end_cb " << endl;
-}
-
-void tess_error_cb(GLenum errorCode) {
-    die("tesselate");
-}
-
-void tess_nothing_cb() {
-    // do nothing
-}
-
-void add_point(vector<float> & vertices, glm::dvec3 point) {
+void add_point(vector<float> & vertices, glm::vec3 point) {
     vertices.push_back(point.x);
     vertices.push_back(point.y);
     vertices.push_back(point.z);
@@ -218,40 +195,51 @@ void load_glyphs() {
 
         // decompose glyph to polyline
         FT_Outline outline = face->glyph->outline;
-        vector<vector<glm::dvec3>> polylines;
+        vector<vector<glm::vec3>> polylines;
         FT_Outline_Decompose(& outline, & pl_funcs, (void *) & polylines);
 
         // mesh polylines to triangles (both front and back face)
-        // TODO use standalone tesselator instead of GLU's
-        auto tobj = gluNewTess();
-        gluTessCallback(tobj, GLU_TESS_BEGIN, (void (__stdcall *)(void)) tess_begin_cb);
-        gluTessCallback(tobj, GLU_TESS_VERTEX, (void (__stdcall *)(void)) tess_vertex_cb);
-        gluTessCallback(tobj, GLU_TESS_END, (void (__stdcall *)(void)) tess_end_cb);
-        gluTessCallback(tobj, GLU_TESS_ERROR, (void (__stdcall *)(void)) tess_error_cb);
-        // for now, make the tesselator not do strips and fans
-        gluTessCallback(tobj, GLU_TESS_EDGE_FLAG, (void (__stdcall *)(void)) tess_nothing_cb);
+        TESStesselator * tobj = tessNewTess(nullptr);
+        if (! tobj) die("tesselator");
+	tessSetOption(tobj, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 1);
 
         front_vertices = {};
         back_vertices = {};
-        gluTessBeginPolygon(tobj, nullptr);
-        for (auto & polyline : polylines) {
-            gluTessBeginContour(tobj);
-            for (auto & point : polyline) {
-                gluTessVertex(tobj, glm::value_ptr(point),
-                              glm::value_ptr(point));
-            }
-            gluTessEndContour(tobj);
+
+        for (vector<glm::vec3> & polyline : polylines) {
+            tessAddContour(tobj, 3, & polyline[0], 3*sizeof(float), polyline.size());
         }
-        gluTessEndPolygon(tobj);
+        tessTesselate(tobj, TESS_WINDING_ODD, TESS_POLYGONS, 3, 3, nullptr);
+
+        glm::vec3 z(0, 0, THICKNESS/2);
+        glm::vec3 norm(0, 0, -1);
+        glm::vec3 p;
+
+        const float * verts = tessGetVertices(tobj);
+        const int * elems = tessGetElements(tobj);
+        //cout << c << " -> " << "verts:" << verts << " elems:" << elems << " nelems:" << tessGetElementCount(tobj) << endl;
+        for (int ix=0 ; ix<tessGetElementCount(tobj) ; ix+=1) {
+            for (int n=0 ; n<3 ; n+=1) {
+                const float * vert = & verts[elems[ix*3 + n]];
+                p = {vert[0], vert[1], vert[2]};
+
+                add_point(front_vertices, p-z);
+                add_point(front_vertices, norm);
+                add_point(back_vertices, p+z);
+                add_point(back_vertices, -norm);
+            }
+        }
+
+        tessDeleteTess(tobj); // for some reason not deleting kills rp3d, shrug
 
         // add sides
-        double font_ratio = 1/font_size;
-        auto half_deep = glm::dvec3(0,0,THICKNESS/2);
+        float font_ratio = 1/font_size;
+        auto half_deep = glm::vec3(0,0,THICKNESS/2);
         vector<float> side_vertices = {};
         for (auto & polyline : polylines) {
             auto prev_point = polyline.back();
-            for (glm::dvec3 & point : polyline) {
-                glm::dvec3 normal = glm::triangleNormal(
+            for (glm::vec3 & point : polyline) {
+                glm::vec3 normal = glm::triangleNormal(
                         prev_point * font_ratio - half_deep,
                         point * font_ratio + half_deep,
                         point * font_ratio - half_deep
@@ -388,14 +376,14 @@ void setup_shaders() {
     glDeleteShader(fragmentShader);
 }
 
-Vector3 gravity(0.0, -9.81, 0.0);
-DynamicsWorld world(gravity);
+rp3d::Vector3 gravity(0.0, -9.81, 0.0);
+rp3d::DynamicsWorld world(gravity);
 
 struct spring {
-    RigidBody * from_body;
-    Vector3 from_con;
-    RigidBody * to_body;
-    Vector3 to_con;
+    rp3d::RigidBody * from_body;
+    rp3d::Vector3 from_con;
+    rp3d::RigidBody * to_body;
+    rp3d::Vector3 to_con;
     float strength;
     float rest_length;
 
@@ -403,16 +391,16 @@ struct spring {
 };
 
 void spring::apply_force() {
-    Vector3 from_point = from_con;
+    rp3d::Vector3 from_point = from_con;
     if (from_body) from_point = from_body->getTransform() * from_con;
 
-    Vector3 to_point = to_con;
+    rp3d::Vector3 to_point = to_con;
     if (to_body) to_point = to_body->getTransform() * to_con;
 
-    Vector3 delta = from_point - to_point;
-    Vector3 delta_unit = delta.getUnit();
+    rp3d::Vector3 delta = from_point - to_point;
+    rp3d::Vector3 delta_unit = delta.getUnit();
     float delta_length = delta.length();
-    Vector3 force = strength * (delta_length - rest_length) * delta_unit;
+    rp3d::Vector3 force = strength * (delta_length - rest_length) * delta_unit;
 
     if (from_body) from_body->applyForce(-force, from_point);
     if (to_body) to_body->applyForce(force, to_point);
@@ -469,16 +457,16 @@ struct ext_text {
     float depth;
     float mass;
     glm::vec3 color;
-    RigidBody * body;
+    rp3d::RigidBody * body;
     glm::mat4 draw_transform = glm::translate(glm::mat4(1.0), glm::vec3(0,-0.5,0)); // TODO derive this from text geometry
 
     ext_text() {}
-    ext_text(string text, float mass, glm::vec3 color, Transform pose=Transform());
+    ext_text(string text, float mass, glm::vec3 color, rp3d::Transform pose=rp3d::Transform());
 
     void draw(glm::mat4 base_model);
 };
 
-ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform pose) {
+ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Transform pose) {
     text = newtext;
     width = word_width(text);
     //height = word_height(text);
@@ -488,8 +476,8 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, Transform 
     color = newcolor;
 
     body = world.createRigidBody(pose);
-    CollisionShape * shape = new BoxShape(Vector3(width/2, height/2, depth/2));
-    body->addCollisionShape(shape, Transform(), mass);
+    rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(width/2, height/2, depth/2));
+    body->addCollisionShape(shape, rp3d::Transform(), mass);
 }
 
 void ext_text::draw(glm::mat4 base_model) {
@@ -503,6 +491,8 @@ vector<ext_text> words;
 vector<spring> springs;
 
 void setup_scene() {
+    cout << "setting up scene" << endl;
+
     // read words from Lua file
     lua_State * L = luaL_newstate();
 
@@ -515,6 +505,8 @@ void setup_scene() {
     }
     luargb.close();
 
+    cout << "read colors" << endl;
+
     ifstream luaconf("text3d_conf.lua");
     while (! luaconf.eof()) {
         getline(luaconf, line);
@@ -523,11 +515,17 @@ void setup_scene() {
     }
     luaconf.close();
 
-    RigidBody * prevbody = nullptr;
+    cout << "read conf.lua" << endl;
+
+    rp3d::RigidBody * prevbody = nullptr;
+
+    cout << "setting up words" << endl;
 
     lua_getglobal(L, "words");
     int nwords = luaL_len(L, -1);
     for (int n=1 ; n<=nwords ; n+=1) {
+        cout << "setting up a word" << endl;
+
         lua_getglobal(L, "words");
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
@@ -546,22 +544,30 @@ void setup_scene() {
         lua_getfield(L, -1, "blue");
         color[2] = lua_tonumber(L, -1);
 
-        ext_text word = ext_text(text, 1, color, Transform(Vector3(0, 0, 0), Quaternion::identity()));
+        cout << "watch out!" << endl;
+
+        ext_text word = ext_text(text, 1, color, rp3d::Transform(rp3d::Vector3(n, -n, 0), rp3d::Quaternion::identity()));
         words.push_back(word);
+
+        cout << "done setting up a word" << endl;
 
         spring s;
         float y = prevbody == nullptr ? 2.5 : -0.333;
-        s = {prevbody, Vector3(-1.5,y,0),
-             word.body, Vector3(-1.5,.333,0),
+        s = {prevbody, rp3d::Vector3(-1.5,y,0),
+             word.body, rp3d::Vector3(-1.5,.333,0),
              50, 1.0};
         springs.push_back(s);
-        s = {prevbody, Vector3(1.5,y,0),
-             word.body, Vector3(1.5,.333,0),
+        s = {prevbody, rp3d::Vector3(1.5,y,0),
+             word.body, rp3d::Vector3(1.5,.333,0),
              50, 1.0};
         springs.push_back(s);
 
+        cout << "done setting up its springs" << endl;
+
         prevbody = word.body;
     }
+
+    cout << "done setting up scene" << endl;
 }
 
 float time_step = 1.0 / 1000.0;
@@ -611,10 +617,13 @@ int main(int nargs, char * args[])
     init();
 
     load_glyphs();
+    cout << "loaded" << endl;
 
     setup_shaders();
+    cout << "shaders" << endl;
 
     setup_scene();
+    cout << "scene" << endl;
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
@@ -628,14 +637,18 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
+            cout << "before physics" << endl;
             physics_step(20.0/1000.0); // step forward 20msec
+            cout << "after physics" << endl;
 
             // background color
             glClearColor(0.2, 0.3, 0.3, 1.0);
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+            cout << "before draw" << endl;
             draw_scene();
+            cout << "after draw" << endl;
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
