@@ -16,13 +16,15 @@
 
 #include "reactphysics3d.h"
 
+extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+}
 
 extern "C" {
 #include <SDL.h>
-#include <gl/glew.h>
+#include <GL/glew.h>
 #include <SDL_opengl.h>
 
 #include "tesselator.h"
@@ -63,6 +65,7 @@ void init() {
                                SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
     if (gWindow == NULL) die("window");
 
+    //memset(& gContext, 0, sizeof(gContext));
     gContext = SDL_GL_CreateContext(gWindow);
     if (! gContext) die("gl context");
 
@@ -201,7 +204,7 @@ void load_glyphs() {
         // mesh polylines to triangles (both front and back face)
         TESStesselator * tobj = tessNewTess(nullptr);
         if (! tobj) die("tesselator");
-	tessSetOption(tobj, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 1);
+        tessSetOption(tobj, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 1);
 
         front_vertices = {};
         back_vertices = {};
@@ -218,14 +221,26 @@ void load_glyphs() {
         const float * verts = tessGetVertices(tobj);
         const int * elems = tessGetElements(tobj);
         //cout << c << " -> " << "verts:" << verts << " elems:" << elems << " nelems:" << tessGetElementCount(tobj) << endl;
+        /*
         for (int ix=0 ; ix<tessGetElementCount(tobj) ; ix+=1) {
             for (int n=0 ; n<3 ; n+=1) {
                 const float * vert = & verts[elems[ix*3 + n]];
-                p = {vert[0], vert[1], vert[2]};
+                p = {vert[0]/font_size, vert[1]/font_size, vert[2]/font_size};
 
                 add_point(front_vertices, p-z);
                 add_point(front_vertices, norm);
                 add_point(back_vertices, p+z);
+                add_point(back_vertices, -norm);
+            }
+        }
+        */
+        for (int ix=0 ; ix<tessGetElementCount(tobj) ; ix+=1) {
+            const int * p = & elems[ix * 3];
+            for (int j=0 ; j<3 ; j+=1) {
+                glm::vec3 point = {verts[p[j]*3]/font_size, verts[p[j]*3+1]/font_size, 0};
+                add_point(front_vertices, point-z);
+                add_point(front_vertices, norm);
+                add_point(back_vertices, point+z);
                 add_point(back_vertices, -norm);
             }
         }
@@ -376,8 +391,7 @@ void setup_shaders() {
     glDeleteShader(fragmentShader);
 }
 
-rp3d::Vector3 gravity(0.0, -9.81, 0.0);
-rp3d::DynamicsWorld world(gravity);
+rp3d::DynamicsWorld * world;
 
 struct spring {
     rp3d::RigidBody * from_body;
@@ -475,7 +489,7 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Tran
     mass = newmass;
     color = newcolor;
 
-    body = world.createRigidBody(pose);
+    body = world->createRigidBody(pose);
     rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(width/2, height/2, depth/2));
     body->addCollisionShape(shape, rp3d::Transform(), mass);
 }
@@ -492,6 +506,9 @@ vector<spring> springs;
 
 void setup_scene() {
     cout << "setting up scene" << endl;
+
+    rp3d::Vector3 gravity(0.0, -9.81, 0.0);
+    world = new rp3d::DynamicsWorld(gravity);
 
     // read words from Lua file
     lua_State * L = luaL_newstate();
@@ -529,20 +546,26 @@ void setup_scene() {
         lua_getglobal(L, "words");
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
+        lua_pop(L, 1);
 
         glm::vec3 color;
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "red");
         color[0] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "green");
         color[1] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "blue");
         color[2] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
 
         cout << "watch out!" << endl;
 
@@ -567,6 +590,8 @@ void setup_scene() {
         prevbody = word.body;
     }
 
+    lua_close(L);
+
     cout << "done setting up scene" << endl;
 }
 
@@ -575,7 +600,7 @@ void physics_step(float dt) {
     for (float n=0 ; n<dt ; n+=time_step) {
         for (auto spring : springs) spring.apply_force();
 
-        world.update(time_step);
+        world->update(time_step);
     }
 }
 
@@ -637,18 +662,18 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
-            cout << "before physics" << endl;
+            //cout << "before physics" << endl;
             physics_step(20.0/1000.0); // step forward 20msec
-            cout << "after physics" << endl;
+            //cout << "after physics" << endl;
 
             // background color
             glClearColor(0.2, 0.3, 0.3, 1.0);
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            cout << "before draw" << endl;
+            //cout << "before draw" << endl;
             draw_scene();
-            cout << "after draw" << endl;
+            //cout << "after draw" << endl;
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
