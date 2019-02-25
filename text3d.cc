@@ -218,6 +218,7 @@ void load_glyphs() {
         const float * verts = tessGetVertices(tobj);
         const int * elems = tessGetElements(tobj);
         //cout << c << " -> " << "verts:" << verts << " elems:" << elems << " nelems:" << tessGetElementCount(tobj) << endl;
+        /*
         for (int ix=0 ; ix<tessGetElementCount(tobj) ; ix+=1) {
             for (int n=0 ; n<3 ; n+=1) {
                 const float * vert = & verts[elems[ix*3 + n]];
@@ -229,6 +230,18 @@ void load_glyphs() {
                 add_point(back_vertices, -norm);
             }
         }
+        */
+        for (int ix=0 ; ix<tessGetElementCount(tobj) ; ix+=1) {
+            const int * p = & elems[ix * 3];
+            for (int j=0 ; j<3 ; j+=1) {
+                glm::vec3 point = {verts[p[j]*3]/font_size, verts[p[j]*3+1]/font_size, 0};
+                add_point(front_vertices, point-z);
+                add_point(front_vertices, norm);
+                add_point(back_vertices, point+z);
+                add_point(back_vertices, -norm);
+            }
+        }
+
 
         tessDeleteTess(tobj); // for some reason not deleting kills rp3d, shrug
 
@@ -376,8 +389,7 @@ void setup_shaders() {
     glDeleteShader(fragmentShader);
 }
 
-rp3d::Vector3 gravity(0.0, -9.81, 0.0);
-rp3d::DynamicsWorld world(gravity);
+rp3d::DynamicsWorld * world;
 
 struct spring {
     rp3d::RigidBody * from_body;
@@ -467,6 +479,8 @@ struct ext_text {
 };
 
 ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Transform pose) {
+    cout << "creating ext_text" << endl;
+
     text = newtext;
     width = word_width(text);
     //height = word_height(text);
@@ -475,9 +489,19 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Tran
     mass = newmass;
     color = newcolor;
 
-    body = world.createRigidBody(pose);
+    cout << "creating rigidbody" << endl;
+
+    body = world->createRigidBody(pose);
+
+    cout << "creating collisionshape" << endl;
+
     rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(width/2, height/2, depth/2));
+
+    cout << "adding collisionshape" << endl;
+
     body->addCollisionShape(shape, rp3d::Transform(), mass);
+
+    cout << "done creating ext_text" << endl;
 }
 
 void ext_text::draw(glm::mat4 base_model) {
@@ -493,6 +517,9 @@ vector<spring> springs;
 void setup_scene() {
     cout << "setting up scene" << endl;
 
+    rp3d::Vector3 gravity(0.0, -9.81, 0.0);
+    world = new rp3d::DynamicsWorld(gravity);
+
     // read words from Lua file
     lua_State * L = luaL_newstate();
 
@@ -505,7 +532,7 @@ void setup_scene() {
     }
     luargb.close();
 
-    cout << "read colors" << endl;
+    cout << "done reading colors" << endl;
 
     ifstream luaconf("text3d_conf.lua");
     while (! luaconf.eof()) {
@@ -515,7 +542,7 @@ void setup_scene() {
     }
     luaconf.close();
 
-    cout << "read conf.lua" << endl;
+    cout << "done reading conf.lua" << endl;
 
     rp3d::RigidBody * prevbody = nullptr;
 
@@ -529,20 +556,26 @@ void setup_scene() {
         lua_getglobal(L, "words");
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
+        lua_pop(L, 1);
 
         glm::vec3 color;
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "red");
         color[0] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "green");
         color[1] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
         lua_getfield(L, -1, "blue");
         color[2] = lua_tonumber(L, -1);
+        lua_pop(L, 1);
 
         cout << "watch out!" << endl;
 
@@ -575,7 +608,7 @@ void physics_step(float dt) {
     for (float n=0 ; n<dt ; n+=time_step) {
         for (auto spring : springs) spring.apply_force();
 
-        world.update(time_step);
+        world->update(time_step);
     }
 }
 
@@ -600,7 +633,7 @@ void draw_scene() {
     for (auto word : words) word.draw(base_model);
 }
 
-int FRAME_TICK;
+unsigned int FRAME_TICK;
 
 uint32_t timer_callback(uint32_t interval, void * param) {
     SDL_Event e;
@@ -627,7 +660,7 @@ int main(int nargs, char * args[])
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
-    SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL);
+    SDL_AddTimer(20, timer_callback, NULL);
 
     bool done = false;
     while (! done)
@@ -637,18 +670,18 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
-            cout << "before physics" << endl;
+            //cout << "before physics" << endl;
             physics_step(20.0/1000.0); // step forward 20msec
-            cout << "after physics" << endl;
+            //cout << "after physics" << endl;
 
             // background color
             glClearColor(0.2, 0.3, 0.3, 1.0);
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            cout << "before draw" << endl;
+            //cout << "before draw" << endl;
             draw_scene();
-            cout << "after draw" << endl;
+            //cout << "after draw" << endl;
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
