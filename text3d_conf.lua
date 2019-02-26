@@ -1,2 +1,2 @@
-words = {"This", "is", "Lua!"}
-colors = {red, green, blue}
+words = {"This", "is", "Lua!", "lol", "yeet", "derp"}
+colors = {red, green, blue, cyan, magenta, yellow}

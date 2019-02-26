@@ -505,7 +505,7 @@ vector<ext_text> words;
 vector<spring> springs;
 
 void setup_scene() {
-    cout << "setting up scene" << endl;
+    //cout << "setting up scene" << endl;
 
     rp3d::Vector3 gravity(0.0, -9.81, 0.0);
     world = new rp3d::DynamicsWorld(gravity);
@@ -522,7 +522,7 @@ void setup_scene() {
     }
     luargb.close();
 
-    cout << "read colors" << endl;
+    //cout << "read colors" << endl;
 
     ifstream luaconf("text3d_conf.lua");
     while (! luaconf.eof()) {
@@ -532,47 +532,47 @@ void setup_scene() {
     }
     luaconf.close();
 
-    cout << "read conf.lua" << endl;
+    //cout << "read conf.lua" << endl;
 
     rp3d::RigidBody * prevbody = nullptr;
 
-    cout << "setting up words" << endl;
+    //cout << "setting up words" << endl;
 
     lua_getglobal(L, "words");
     int nwords = luaL_len(L, -1);
+    lua_pop(L, 1);
     for (int n=1 ; n<=nwords ; n+=1) {
-        cout << "setting up a word" << endl;
+        //cout << "setting up a word" << endl;
+        //cout << "stack:" << lua_gettop(L) << endl;
 
         lua_getglobal(L, "words");
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
-        lua_pop(L, 1);
+        lua_pop(L, 2);
 
         glm::vec3 color;
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
+
         lua_getfield(L, -1, "red");
         color[0] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        lua_getglobal(L, "colors");
-        lua_geti(L, -1, n);
         lua_getfield(L, -1, "green");
         color[1] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        lua_getglobal(L, "colors");
-        lua_geti(L, -1, n);
         lua_getfield(L, -1, "blue");
         color[2] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        cout << "watch out!" << endl;
+        lua_pop(L, 2);
 
         ext_text word = ext_text(text, 1, color, rp3d::Transform(rp3d::Vector3(n, -n, 0), rp3d::Quaternion::identity()));
         words.push_back(word);
 
-        cout << "done setting up a word" << endl;
+        //cout << "done setting up a word" << endl;
+        //cout << "stack:" << lua_gettop(L) << endl;
 
         spring s;
         float y = prevbody == nullptr ? 2.5 : -0.333;
@@ -585,14 +585,14 @@ void setup_scene() {
              50, 1.0};
         springs.push_back(s);
 
-        cout << "done setting up its springs" << endl;
+        //cout << "done setting up its springs" << endl;
 
         prevbody = word.body;
     }
 
     lua_close(L);
 
-    cout << "done setting up scene" << endl;
+    //cout << "done setting up scene" << endl;
 }
 
 float time_step = 1.0 / 1000.0;
@@ -642,13 +642,13 @@ int main(int nargs, char * args[])
     init();
 
     load_glyphs();
-    cout << "loaded" << endl;
+    //cout << "loaded" << endl;
 
     setup_shaders();
-    cout << "shaders" << endl;
+    //cout << "shaders" << endl;
 
     setup_scene();
-    cout << "scene" << endl;
+    //cout << "scene" << endl;
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
