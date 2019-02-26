@@ -33,7 +33,8 @@ extern "C" {
 }
 
 using namespace std;
-//using namespace reactphysics3d;
+
+//TODO fix coordinate system mismatch (lefthand vs righthand, +z vs -z)
 
 const int SCREEN_WIDTH = 1000;
 const int SCREEN_HEIGHT = 1000;
@@ -45,6 +46,17 @@ SDL_GLContext gContext;
 void die(string message) {
     cout << message << endl;
     exit(1);
+}
+
+void GLAPIENTRY MessageCallback(
+        GLenum source,
+        GLenum type,
+        GLuint id,
+        GLenum severity,
+        GLsizei length,
+        const GLchar* message,
+        const void* userParam) {
+    cerr << "GL CALLBACK: " << (type==GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") << " type=" << type << " severity=" << severity << " message=" << message << endl;
 }
 
 void init() {
@@ -71,6 +83,9 @@ void init() {
     glewExperimental = GL_TRUE; 
     GLenum glewError = glewInit();
     if (glewError != GLEW_OK) die("glew");
+
+    glEnable(GL_DEBUG_OUTPUT);
+    glDebugMessageCallback(MessageCallback, 0);
 
     // GL viewport
     glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -149,26 +164,6 @@ vector<float> front_vertices;
 vector<float> back_vertices;
 
 const float THICKNESS = 0.25;
-
-/*
-void tess_vertex_cb(void * vertex) {
-    //cout << "tess_vertex_cb " << vertex << endl;
-    float * v_in = (float *) vertex;
-    front_vertices.push_back(v_in[0] / font_size);
-    front_vertices.push_back(v_in[1] / font_size);
-    front_vertices.push_back(v_in[2] / font_size + THICKNESS/2);
-    front_vertices.push_back(0);
-    front_vertices.push_back(0);
-    front_vertices.push_back(1);
-
-    back_vertices.push_back(v_in[0] / font_size);
-    back_vertices.push_back(v_in[1] / font_size);
-    back_vertices.push_back(v_in[2] / font_size - THICKNESS/2);
-    back_vertices.push_back(0);
-    back_vertices.push_back(0);
-    back_vertices.push_back(-1);
-}
-*/
 
 void add_point(vector<float> & vertices, glm::vec3 point) {
     vertices.push_back(point.x);
@@ -253,6 +248,7 @@ void load_glyphs() {
         for (auto & polyline : polylines) {
             auto prev_point = polyline.back();
             for (glm::vec3 & point : polyline) {
+                //TODO blend normals between adjacent faces
                 glm::vec3 normal = glm::triangleNormal(
                         prev_point * font_ratio - half_deep,
                         point * font_ratio + half_deep,
@@ -295,8 +291,8 @@ void load_glyphs() {
         vertices.insert(vertices.end(), back_vertices.begin(), back_vertices.end());
         vertices.insert(vertices.end(), side_vertices.begin(), side_vertices.end());
 
-        ch.nvertices = vertices.size();
-        glBufferData(GL_ARRAY_BUFFER, ch.nvertices * sizeof(float), & vertices[0], GL_STATIC_DRAW);
+        ch.nvertices = vertices.size() / 6;
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), & vertices[0], GL_STATIC_DRAW);
 
         // vertex positions
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
@@ -446,7 +442,6 @@ void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
 
-    glPolygonMode(GL_FRONT, GL_FILL);
     glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
 }
 
@@ -593,11 +588,11 @@ void setup_scene() {
         float y = prevbody == nullptr ? 3.5 : -0.333;
         s = {prevbody, rp3d::Vector3(-1.5,y,0),
              word.body, rp3d::Vector3(-1.5,.333,0),
-             50, 0.5};
+             200, 0.5};
         springs.push_back(s);
         s = {prevbody, rp3d::Vector3(1.5,y,0),
              word.body, rp3d::Vector3(1.5,.333,0),
-             50, 0.5};
+             200, 0.5};
         springs.push_back(s);
 
         //cout << "done setting up its springs" << endl;
