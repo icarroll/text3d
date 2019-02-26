@@ -35,8 +35,8 @@ extern "C" {
 using namespace std;
 //using namespace reactphysics3d;
 
-const int SCREEN_WIDTH = 800;
-const int SCREEN_HEIGHT = 800;
+const int SCREEN_WIDTH = 1000;
+const int SCREEN_HEIGHT = 1000;
 
 char WINDOW_NAME[] = "Hello, World! Now in 3D more!";
 SDL_Window * gWindow = NULL;
@@ -53,9 +53,10 @@ void init() {
     if (! SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1")) die("texture");
 
     // init SDL GL
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, 3 );
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, 3 );
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                        SDL_GL_CONTEXT_PROFILE_CORE);
 
     gWindow = SDL_CreateWindow(WINDOW_NAME, SDL_WINDOWPOS_UNDEFINED,
                                SDL_WINDOWPOS_UNDEFINED,
@@ -201,7 +202,7 @@ void load_glyphs() {
         // mesh polylines to triangles (both front and back face)
         TESStesselator * tobj = tessNewTess(nullptr);
         if (! tobj) die("tesselator");
-	tessSetOption(tobj, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 1);
+        tessSetOption(tobj, TESS_CONSTRAINED_DELAUNAY_TRIANGULATION, 1);
 
         front_vertices = {};
         back_vertices = {};
@@ -355,7 +356,7 @@ void setup_shaders() {
         "  float diff = max(dot(norm, lightDir), 0.0);\n"
         "  vec3 diffuse = diff * lightColor;\n"
         "  float specularStrength = 0.25;\n"
-        "  vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
+        "  vec3 viewPos = vec3(0.0, 0.0, 10.0);\n" //TODO make this a uniform
         "  vec3 viewDir = normalize(viewPos - FragPos);\n"
         "  vec3 reflectDir = reflect(-lightDir, norm);\n"
         "  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
@@ -479,7 +480,7 @@ struct ext_text {
 };
 
 ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Transform pose) {
-    cout << "creating ext_text" << endl;
+    //cout << "creating ext_text" << endl;
 
     text = newtext;
     width = word_width(text);
@@ -489,19 +490,21 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Tran
     mass = newmass;
     color = newcolor;
 
-    cout << "creating rigidbody" << endl;
+    //cout << "creating rigidbody" << endl;
 
     body = world->createRigidBody(pose);
+    body->setLinearDamping(0.00001);
+    body->setAngularDamping(0.00001);
 
-    cout << "creating collisionshape" << endl;
+    //cout << "creating collisionshape" << endl;
 
     rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(width/2, height/2, depth/2));
 
-    cout << "adding collisionshape" << endl;
+    //cout << "adding collisionshape" << endl;
 
     body->addCollisionShape(shape, rp3d::Transform(), mass);
 
-    cout << "done creating ext_text" << endl;
+    //cout << "done creating ext_text" << endl;
 }
 
 void ext_text::draw(glm::mat4 base_model) {
@@ -515,7 +518,7 @@ vector<ext_text> words;
 vector<spring> springs;
 
 void setup_scene() {
-    cout << "setting up scene" << endl;
+    //cout << "setting up scene" << endl;
 
     rp3d::Vector3 gravity(0.0, -9.81, 0.0);
     world = new rp3d::DynamicsWorld(gravity);
@@ -532,7 +535,7 @@ void setup_scene() {
     }
     luargb.close();
 
-    cout << "done reading colors" << endl;
+    //cout << "done reading colors" << endl;
 
     ifstream luaconf("text3d_conf.lua");
     while (! luaconf.eof()) {
@@ -542,65 +545,69 @@ void setup_scene() {
     }
     luaconf.close();
 
-    cout << "done reading conf.lua" << endl;
+    //cout << "done reading conf.lua" << endl;
 
     rp3d::RigidBody * prevbody = nullptr;
 
-    cout << "setting up words" << endl;
+    //cout << "setting up words" << endl;
 
     lua_getglobal(L, "words");
     int nwords = luaL_len(L, -1);
+    lua_pop(L, 1);
     for (int n=1 ; n<=nwords ; n+=1) {
-        cout << "setting up a word" << endl;
+        //cout << "setting up a word" << endl;
 
         lua_getglobal(L, "words");
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
-        lua_pop(L, 1);
+        lua_pop(L, 2);
+
+        //cout << "word is " << text << endl;
 
         glm::vec3 color;
         lua_getglobal(L, "colors");
         lua_geti(L, -1, n);
+
         lua_getfield(L, -1, "red");
         color[0] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        lua_getglobal(L, "colors");
-        lua_geti(L, -1, n);
         lua_getfield(L, -1, "green");
         color[1] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        lua_getglobal(L, "colors");
-        lua_geti(L, -1, n);
         lua_getfield(L, -1, "blue");
         color[2] = lua_tonumber(L, -1);
         lua_pop(L, 1);
 
-        cout << "watch out!" << endl;
+        lua_pop(L, 2);
+
+        //cout << "watch out!" << endl;
 
         ext_text word = ext_text(text, 1, color, rp3d::Transform(rp3d::Vector3(n, -n, 0), rp3d::Quaternion::identity()));
         words.push_back(word);
 
-        cout << "done setting up a word" << endl;
+        //cout << "done setting up a word" << endl;
 
         spring s;
-        float y = prevbody == nullptr ? 2.5 : -0.333;
+        float y = prevbody == nullptr ? 3.5 : -0.333;
         s = {prevbody, rp3d::Vector3(-1.5,y,0),
              word.body, rp3d::Vector3(-1.5,.333,0),
-             50, 1.0};
+             50, 0.5};
         springs.push_back(s);
         s = {prevbody, rp3d::Vector3(1.5,y,0),
              word.body, rp3d::Vector3(1.5,.333,0),
-             50, 1.0};
+             50, 0.5};
         springs.push_back(s);
 
-        cout << "done setting up its springs" << endl;
+        //cout << "done setting up its springs" << endl;
 
         prevbody = word.body;
     }
 
-    cout << "done setting up scene" << endl;
+    lua_close(L);
+
+    //cout << "done setting up scene" << endl;
 }
 
 float time_step = 1.0 / 1000.0;
@@ -623,7 +630,7 @@ void draw_scene() {
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -3.0));
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -4.0));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
     glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
@@ -650,13 +657,13 @@ int main(int nargs, char * args[])
     init();
 
     load_glyphs();
-    cout << "loaded" << endl;
+    //cout << "loaded" << endl;
 
     setup_shaders();
-    cout << "shaders" << endl;
+    //cout << "shaders" << endl;
 
     setup_scene();
-    cout << "scene" << endl;
+    //cout << "scene" << endl;
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
