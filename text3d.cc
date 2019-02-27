@@ -35,10 +35,11 @@ extern "C" {
 }
 
 using namespace std;
-//using namespace reactphysics3d;
 
-const int SCREEN_WIDTH = 800;
-const int SCREEN_HEIGHT = 800;
+//TODO fix coordinate system mismatch (lefthand vs righthand, +z vs -z)
+
+const int SCREEN_WIDTH = 1000;
+const int SCREEN_HEIGHT = 1000;
 
 char WINDOW_NAME[] = "Hello, World! Now in 3D more!";
 SDL_Window * gWindow = NULL;
@@ -49,15 +50,27 @@ void die(string message) {
     exit(1);
 }
 
+void GLAPIENTRY MessageCallback(
+        GLenum source,
+        GLenum type,
+        GLuint id,
+        GLenum severity,
+        GLsizei length,
+        const GLchar* message,
+        const void* userParam) {
+    cerr << "GL CALLBACK: " << (type==GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") << " type=" << type << " severity=" << severity << " message=" << message << endl;
+}
+
 void init() {
     // init SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) die("SDL");
     if (! SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1")) die("texture");
 
     // init SDL GL
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, 3 );
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, 3 );
-    SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                        SDL_GL_CONTEXT_PROFILE_CORE);
 
     gWindow = SDL_CreateWindow(WINDOW_NAME, SDL_WINDOWPOS_UNDEFINED,
                                SDL_WINDOWPOS_UNDEFINED,
@@ -73,6 +86,9 @@ void init() {
     glewExperimental = GL_TRUE; 
     GLenum glewError = glewInit();
     if (glewError != GLEW_OK) die("glew");
+
+    glEnable(GL_DEBUG_OUTPUT);
+    glDebugMessageCallback(MessageCallback, 0);
 
     // GL viewport
     glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -151,26 +167,6 @@ vector<float> front_vertices;
 vector<float> back_vertices;
 
 const float THICKNESS = 0.25;
-
-/*
-void tess_vertex_cb(void * vertex) {
-    //cout << "tess_vertex_cb " << vertex << endl;
-    float * v_in = (float *) vertex;
-    front_vertices.push_back(v_in[0] / font_size);
-    front_vertices.push_back(v_in[1] / font_size);
-    front_vertices.push_back(v_in[2] / font_size + THICKNESS/2);
-    front_vertices.push_back(0);
-    front_vertices.push_back(0);
-    front_vertices.push_back(1);
-
-    back_vertices.push_back(v_in[0] / font_size);
-    back_vertices.push_back(v_in[1] / font_size);
-    back_vertices.push_back(v_in[2] / font_size - THICKNESS/2);
-    back_vertices.push_back(0);
-    back_vertices.push_back(0);
-    back_vertices.push_back(-1);
-}
-*/
 
 void add_point(vector<float> & vertices, glm::vec3 point) {
     vertices.push_back(point.x);
@@ -254,6 +250,7 @@ void load_glyphs() {
         for (auto & polyline : polylines) {
             auto prev_point = polyline.back();
             for (glm::vec3 & point : polyline) {
+                //TODO blend normals between adjacent faces
                 glm::vec3 normal = glm::triangleNormal(
                         prev_point * font_ratio - half_deep,
                         point * font_ratio + half_deep,
@@ -296,8 +293,8 @@ void load_glyphs() {
         vertices.insert(vertices.end(), back_vertices.begin(), back_vertices.end());
         vertices.insert(vertices.end(), side_vertices.begin(), side_vertices.end());
 
-        ch.nvertices = vertices.size();
-        glBufferData(GL_ARRAY_BUFFER, ch.nvertices * sizeof(float), & vertices[0], GL_STATIC_DRAW);
+        ch.nvertices = vertices.size() / 6;
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), & vertices[0], GL_STATIC_DRAW);
 
         // vertex positions
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
@@ -357,7 +354,7 @@ void setup_shaders() {
         "  float diff = max(dot(norm, lightDir), 0.0);\n"
         "  vec3 diffuse = diff * lightColor;\n"
         "  float specularStrength = 0.25;\n"
-        "  vec3 viewPos = vec3(0.0, 0.0, 10.0);\n"
+        "  vec3 viewPos = vec3(0.0, 0.0, 10.0);\n" //TODO make this a uniform
         "  vec3 viewDir = normalize(viewPos - FragPos);\n"
         "  vec3 reflectDir = reflect(-lightDir, norm);\n"
         "  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
@@ -447,7 +444,6 @@ void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
 
-    glPolygonMode(GL_FRONT, GL_FILL);
     glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
 }
 
@@ -481,6 +477,8 @@ struct ext_text {
 };
 
 ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Transform pose) {
+    //cout << "creating ext_text" << endl;
+
     text = newtext;
     width = word_width(text);
     //height = word_height(text);
@@ -489,9 +487,21 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Tran
     mass = newmass;
     color = newcolor;
 
+    //cout << "creating rigidbody" << endl;
+
     body = world->createRigidBody(pose);
+    body->setLinearDamping(0.00001);
+    body->setAngularDamping(0.00001);
+
+    //cout << "creating collisionshape" << endl;
+
     rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(width/2, height/2, depth/2));
+
+    //cout << "adding collisionshape" << endl;
+
     body->addCollisionShape(shape, rp3d::Transform(), mass);
+
+    //cout << "done creating ext_text" << endl;
 }
 
 void ext_text::draw(glm::mat4 base_model) {
@@ -522,7 +532,7 @@ void setup_scene() {
     }
     luargb.close();
 
-    //cout << "read colors" << endl;
+    //cout << "done reading colors" << endl;
 
     ifstream luaconf("text3d_conf.lua");
     while (! luaconf.eof()) {
@@ -532,7 +542,7 @@ void setup_scene() {
     }
     luaconf.close();
 
-    //cout << "read conf.lua" << endl;
+    //cout << "done reading conf.lua" << endl;
 
     rp3d::RigidBody * prevbody = nullptr;
 
@@ -549,6 +559,8 @@ void setup_scene() {
         lua_geti(L, -1, n);
         string text(lua_tostring(L, -1));
         lua_pop(L, 2);
+
+        //cout << "word is " << text << endl;
 
         glm::vec3 color;
         lua_getglobal(L, "colors");
@@ -575,14 +587,14 @@ void setup_scene() {
         //cout << "stack:" << lua_gettop(L) << endl;
 
         spring s;
-        float y = prevbody == nullptr ? 2.5 : -0.333;
+        float y = prevbody == nullptr ? 3.5 : -0.333;
         s = {prevbody, rp3d::Vector3(-1.5,y,0),
              word.body, rp3d::Vector3(-1.5,.333,0),
-             50, 1.0};
+             200, 0.5};
         springs.push_back(s);
         s = {prevbody, rp3d::Vector3(1.5,y,0),
              word.body, rp3d::Vector3(1.5,.333,0),
-             50, 1.0};
+             200, 0.5};
         springs.push_back(s);
 
         //cout << "done setting up its springs" << endl;
@@ -615,7 +627,7 @@ void draw_scene() {
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -3.0));
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -4.0));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
     glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
