@@ -625,7 +625,7 @@ void draw_scene() {
     for (auto word : words) word.draw(base_model);
 }
 
-int FRAME_TICK;
+unsigned int FRAME_TICK;
 
 uint32_t timer_callback(uint32_t interval, void * param) {
     SDL_Event e;
@@ -652,7 +652,7 @@ int main(int nargs, char * args[])
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
-    SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL);
+    SDL_AddTimer(20, timer_callback, NULL);
 
     bool done = false;
     while (! done)
