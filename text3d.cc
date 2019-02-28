@@ -166,7 +166,7 @@ void add_point(vector<float> & vertices, glm::vec3 point) {
 GLuint teapot_VAO;
 int teapot_ntris;
 
-const int TEAPOT_FINENESS = 50;
+const int TEAPOT_FINENESS = 10;
 void load_teapot() {
     // load teapot bezier patch control points
     vector<vector<glm::vec3>> patches = {};
@@ -627,8 +627,8 @@ ext_text::ext_text(string newtext, float newmass, glm::vec3 newcolor, rp3d::Tran
     //cout << "creating rigidbody" << endl;
 
     body = world->createRigidBody(pose);
-    body->setLinearDamping(0.00001);
-    body->setAngularDamping(0.00001);
+    body->setLinearDamping(0.01);
+    body->setAngularDamping(0.01);
 
     //cout << "creating collisionshape" << endl;
 
