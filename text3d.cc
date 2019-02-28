@@ -56,8 +56,8 @@ void GLAPIENTRY MessageCallback(
         GLuint id,
         GLenum severity,
         GLsizei length,
-        const GLchar* message,
-        const void* userParam) {
+        const GLchar * message,
+        const void * userParam) {
     cerr << "GL CALLBACK: " << (type==GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") << " type=" << type << " severity=" << severity << " message=" << message << endl;
 }
 
@@ -102,6 +102,151 @@ void close()
     gWindow = NULL;
 
     SDL_Quit();
+}
+
+int fact(int n) {
+    int r = 1;
+    for (int i=2 ; i<=n ; i+=1) r *= i;
+    return r;
+}
+
+int binomial(int n, int k) {
+    return fact(n) / (fact(k) * fact(n-k));
+}
+
+float bernstein_3(int ix, float uv) {
+    return binomial(3, ix) * pow(uv, ix) * pow(1-uv, 3-ix);
+}
+
+glm::vec3 bezier_bicubic_quad(vector<glm::vec3> controls, float u, float v) {
+    glm::vec3 p(0,0,0);
+
+    for (int i=0 ; i<4 ; i+=1) {
+        for (int j=0 ; j<4 ; j+=1) {
+            p += bernstein_3(i, u) * bernstein_3(j, v) * controls[i*4 + j];
+        }
+    }
+
+    return p;
+}
+
+void load_patches(string filename, vector<vector<glm::vec3>> & patches) {
+    ifstream f(filename);
+    string line;
+
+    //TODO fix only accepts comments at the beginning of the file
+    do getline(f, line); while (line[0] == '#');
+    int npatches = stoi(line);
+
+    for (int ix=0 ; ix<npatches ; ix+=1) {
+        getline(f, line);
+        int uorder, vorder;
+        istringstream(line) >> uorder >> vorder;
+
+        vector<glm::vec3> patch = {};
+        for (int v=0 ; v<=vorder ; v+=1) {
+            for (int u=0 ; u<=uorder ; u+=1) {
+                getline(f, line);
+                glm::vec3 p;
+                istringstream(line) >> p.x >> p.y >> p.z;
+                patch.push_back(p);
+            }
+        }
+        patches.push_back(patch);
+    }
+    f.close();
+}
+
+void add_point(vector<float> & vertices, glm::vec3 point) {
+    vertices.push_back(point.x);
+    vertices.push_back(point.y);
+    vertices.push_back(point.z);
+}
+
+GLuint teapot_VAO;
+int teapot_ntris;
+
+const int TEAPOT_FINENESS = 50;
+void load_teapot() {
+    // load teapot bezier patch control points
+    vector<vector<glm::vec3>> patches = {};
+    load_patches("teapotCGA.bpt", patches);
+
+    // convert bezier patches to triangle meshes
+    const int tf = TEAPOT_FINENESS;
+    vector<float> coords = {};
+    for (auto patch : patches) {
+        //TODO fix assumption of bicubic patches
+        //TODO make sure uv coordinates match (important?)
+        glm::vec3 ps[tf][tf];
+        for (int i=0 ; i<tf ; i+=1) {
+            for (int j=0 ; j<tf ; j+=1) {
+                ps[i][j] = bezier_bicubic_quad(patch, i/float(tf-1), j/float(tf-1));
+            }
+        }
+        
+        for (int ix=0 ; ix<tf-1 ; ix+=1) {
+            for (int jx=0 ; jx<tf-1 ; jx+=1) {
+                glm::vec3 normal = glm::triangleNormal(
+                        ps[ix][jx],
+                        ps[ix][jx+1],
+                        ps[ix+1][jx]
+                );
+
+                add_point(coords, ps[ix][jx]);
+                add_point(coords, normal);
+                add_point(coords, ps[ix][jx+1]);
+                add_point(coords, normal);
+                add_point(coords, ps[ix+1][jx]);
+                add_point(coords, normal);
+
+                add_point(coords, ps[ix+1][jx+1]);
+                add_point(coords, normal);
+                add_point(coords, ps[ix+1][jx]);
+                add_point(coords, normal);
+                add_point(coords, ps[ix][jx+1]);
+                add_point(coords, normal);
+            }
+        }
+    }
+
+    glGenVertexArrays(1, & teapot_VAO);
+
+    GLuint VBO;
+    glGenBuffers(1, & VBO);
+
+    glBindVertexArray(teapot_VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    teapot_ntris = coords.size() / 6;
+    glBufferData(GL_ARRAY_BUFFER, coords.size() * sizeof(float), & coords[0], GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void *) (3*sizeof(float)));
+    glEnableVertexAttribArray(1);
+}
+
+GLuint shaderProgram;
+
+void draw_teapot() {
+    auto model = glm::mat4(1.0f);
+    model = glm::translate(model, glm::vec3(0, -2, -3));
+    model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1, 0, 0));
+    model = glm::rotate(model, glm::radians(-15.0f), glm::vec3(0, 0, 1));
+
+    glm::vec3 color = {1.0, 1.0, 1.0};
+
+    unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
+    unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+
+    glBindVertexArray(teapot_VAO);
+
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
+
+    glDrawArrays(GL_TRIANGLES, 0, teapot_ntris);
 }
 
 FT_Library ft;
@@ -168,18 +313,12 @@ vector<float> back_vertices;
 
 const float THICKNESS = 0.25;
 
-void add_point(vector<float> & vertices, glm::vec3 point) {
-    vertices.push_back(point.x);
-    vertices.push_back(point.y);
-    vertices.push_back(point.z);
-}
-
 struct Character {
     float advance_x;
     float top;
     float bot;
     GLuint VAO;
-    int nvertices;
+    int ntris;
 };
 
 vector<Character> Characters(128);
@@ -293,7 +432,7 @@ void load_glyphs() {
         vertices.insert(vertices.end(), back_vertices.begin(), back_vertices.end());
         vertices.insert(vertices.end(), side_vertices.begin(), side_vertices.end());
 
-        ch.nvertices = vertices.size() / 6;
+        ch.ntris = vertices.size() / 6;
         glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), & vertices[0], GL_STATIC_DRAW);
 
         // vertex positions
@@ -305,8 +444,6 @@ void load_glyphs() {
         glEnableVertexAttribArray(1);
     }
 }
-
-GLuint shaderProgram;
 
 void setup_shaders() {
     // vertex shader
@@ -444,7 +581,7 @@ void draw_letter(Character & ch, glm::mat4 model, glm::vec3 color) {
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
     glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
 
-    glDrawArrays(GL_TRIANGLES, 0, ch.nvertices);
+    glDrawArrays(GL_TRIANGLES, 0, ch.ntris);
 }
 
 void draw_word(string word, glm::mat4 base_model, glm::vec3 color) {
@@ -523,6 +660,7 @@ void setup_scene() {
     // read words from Lua file
     lua_State * L = luaL_newstate();
 
+    //TODO use lua function to read file
     ifstream luargb("rgb.lua");
     string line;
     while (! luargb.eof()) {
@@ -635,6 +773,8 @@ void draw_scene() {
 
     auto base_model = glm::mat4(1.0);
     for (auto word : words) word.draw(base_model);
+
+    draw_teapot();
 }
 
 unsigned int FRAME_TICK;
@@ -655,6 +795,8 @@ int main(int nargs, char * args[])
 
     load_glyphs();
     //cout << "loaded" << endl;
+
+    load_teapot();
 
     setup_shaders();
     //cout << "shaders" << endl;
