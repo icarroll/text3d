@@ -56,7 +56,7 @@ void GLAPIENTRY MessageCallback(
         GLsizei length,
         const GLchar * message,
         const void * userParam) {
-    cerr << "GL CALLBACK: " << (type==GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") << " type=" << type << " severity=" << severity << " message=" << message << endl;
+    if (type==GL_DEBUG_TYPE_ERROR) cerr << "GL CALLBACK: " << (type==GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") << " type=" << type << " severity=" << severity << " message=" << message << endl;
 }
 
 void init() {
@@ -155,14 +155,15 @@ void load_patches(string filename, vector<vector<glm::vec3>> & patches) {
     f.close();
 }
 
-void add_point(vector<float> & vertices, glm::vec3 point) {
-    vertices.push_back(point.x);
-    vertices.push_back(point.y);
-    vertices.push_back(point.z);
+void add_point(vector<float> & values, glm::vec3 point) {
+    values.push_back(point.x);
+    values.push_back(point.y);
+    values.push_back(point.z);
 }
 
 GLuint teapot_VAO;
 int teapot_ntris;
+rp3d::RigidBody * teapot_body;
 
 const int TEAPOT_FINENESS = 10;
 void load_teapot() {
@@ -230,9 +231,15 @@ GLuint shaderProgram;
 
 void draw_teapot() {
     auto model = glm::mat4(1.0f);
-    model = glm::translate(model, glm::vec3(0, -2, -3));
+    model = glm::scale(model, glm::vec3(0.5, 0.5, 0.5));
+    model = glm::translate(model, glm::vec3(0, -2, 0));
     model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1, 0, 0));
-    model = glm::rotate(model, glm::radians(-15.0f), glm::vec3(0, 0, 1));
+    //model = glm::rotate(model, glm::radians(-15.0f), glm::vec3(0, 0, 1));
+
+    //TODO something with teapot_body
+    glm::mat4 phys_model;
+    teapot_body->getTransform().getOpenGLMatrix(glm::value_ptr(phys_model));
+    model = phys_model * model;
 
     glm::vec3 color = {1.0, 1.0, 1.0};
 
@@ -443,6 +450,8 @@ void load_glyphs() {
     }
 }
 
+//TODO load shaders from files
+//TODO implement physically based materials
 void setup_shaders() {
     // vertex shader
     const char * vertex_shader_code =
@@ -484,7 +493,7 @@ void setup_shaders() {
         "void main() {\n"
         "  float ambientStrength = 0.1;\n"
         "  vec3 ambient = ambientStrength * lightColor;\n"
-        "  vec3 norm = -normalize(Normal);\n"
+        "  vec3 norm = -normalize(Normal);\n" //TODO unminus this?
         "  vec3 lightDir = normalize(lightPos - FragPos);\n"
         "  float diff = max(dot(norm, lightDir), 0.0);\n"
         "  vec3 diffuse = diff * lightColor;\n"
@@ -740,6 +749,21 @@ void setup_scene() {
 
     lua_close(L);
 
+    // setup teapot
+    rp3d::Transform pose(rp3d::Vector3(0, 0, 0), rp3d::Quaternion::identity());
+    teapot_body = world->createRigidBody(pose);
+    teapot_body->setLinearDamping(0.01);
+    teapot_body->setAngularDamping(0.01);
+
+    rp3d::CollisionShape * shape = new rp3d::BoxShape(rp3d::Vector3(1, 1, 1));
+    float mass = 10.0;
+    teapot_body->addCollisionShape(shape, rp3d::Transform(), mass);
+
+    spring s = {nullptr, rp3d::Vector3(-1.5,1,0),
+                teapot_body, rp3d::Vector3(-1.5,.333,0),
+                200, 1.0};
+    springs.push_back(s);
+
     //cout << "done setting up scene" << endl;
 }
 
@@ -772,6 +796,7 @@ void draw_scene() {
     auto base_model = glm::mat4(1.0);
     for (auto word : words) word.draw(base_model);
 
+    //TODO bounce teapot
     draw_teapot();
 }
 
