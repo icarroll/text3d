@@ -1,0 +1,8 @@
+[submodule "reactphysics3d"]
+	path = reactphysics3d
+	url = https://github.com/DanielChappuis/reactphysics3d.git
+	branch = master
+[submodule "tesselator"]
+	path = libtess2
+	url = https://github.com/memononen/libtess2.git
+	branch = master

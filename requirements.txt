@@ -1,0 +1,2 @@
+sudo yum groupinstall 'C Development Tools and Libraries'
+sudo yum install glm-devel lua-devel SDL2-devel glew-devel premake
